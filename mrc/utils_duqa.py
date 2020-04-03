@@ -60,9 +60,12 @@ class InputFeatures(object):
                  tokens,
                  token_to_orig_map,
                  token_is_max_context,
-                 input_ids,
-                 input_mask,
-                 segment_ids,
+                 q_input_ids,
+                 q_input_mask,
+                 q_segment_ids,
+                 p_input_ids,
+                 p_input_mask,
+                 p_segment_ids,
                  start_position=None,
                  end_position=None):
         self.unique_id = unique_id
@@ -71,9 +74,9 @@ class InputFeatures(object):
         self.tokens = tokens
         self.token_to_orig_map = token_to_orig_map
         self.token_is_max_context = token_is_max_context
-        self.input_ids = input_ids
-        self.input_mask = input_mask
-        self.segment_ids = segment_ids
+        self.p_input_ids = p_input_ids
+        self.p_input_mask = p_input_mask
+        self.p_segment_ids = p_segment_ids
         self.start_position = start_position
         self.end_position = end_position
 
@@ -98,7 +101,7 @@ def read_baidu_examples(input_file, is_training):
             #若不是训练，那么数据应该只包含问题，文本，以上三个信息都为None
             #若是训练的话，
             if is_training:
-                orig_answer_text = example['fake_answer'][0]
+                orig_answer_text = example['answer'][0]
                 start_position = int(example['answer_span'][0])
                 end_position = int(example['answer_span'][1])
 
@@ -141,7 +144,7 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         # 若不是训练，那么数据应该只包含问题，文本，以上三个信息都为None
         # 若是训练的话，
         if is_training:
-            orig_answer_text = example['fake_answer'][0]
+            orig_answer_text = example['answer'][0]
             start_position = int(example['answer_span'][0])
             end_position = int(example['answer_span'][1])
 
@@ -223,14 +226,18 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             tokens = []
             token_to_orig_map = {}
             token_is_max_context = {}
-            segment_ids = []
+            p_segment_ids = []
+            # 因为需要建立一个从字到词的对应表，所以还得一个一个弄
+             = tokenizer.build_inputs_with_special_tokens(all_doc_tokens)
+            q_p_segment_ids = tokenizer.create_token_type_ids_from_sequences(tokens)
+            # 这里尝试把一个SEP给删掉
             tokens.append("[CLS]")
-            segment_ids.append(0)
-            for token in query_tokens:
-                tokens.append(token)
-                segment_ids.append(0)
-            tokens.append("[SEP]")
-            segment_ids.append(0)
+            # p_segment_ids.append(0)
+            # for token in query_tokens:
+            #     tokens.append(token)
+            #     p_segment_ids.append(0)
+            # tokens.append("[SEP]")
+            p_segment_ids.append(0)
 
             for i in range(doc_span.length):
                 split_token_index = doc_span.start + i
@@ -240,25 +247,26 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                                                        split_token_index)
                 token_is_max_context[len(tokens)] = is_max_context
                 tokens.append(all_doc_tokens[split_token_index])
-                segment_ids.append(1)
+                p_segment_ids.append(0)
             tokens.append("[SEP]")
-            segment_ids.append(1)
-
-            input_ids = tokenizer.convert_tokens_to_ids(tokens)
+            p_segment_ids.append(0)
+            # cls = [tokenizer.cls_token_id]
+            # p_segment_ids = tokenizer.create_token_type_ids_from_sequences(tokens)
+            p_input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
             # The mask has 1 for real tokens and 0 for padding tokens. Only real
             # tokens are attended to.
-            input_mask = [1] * len(input_ids)
+            p_input_mask = [1] * len(p_input_ids)
 
             # Zero-pad up to the sequence length.
-            while len(input_ids) < max_seq_length:
-                input_ids.append(0)
-                input_mask.append(0)
-                segment_ids.append(0)
+            while len(p_input_ids) < max_seq_length:
+                p_input_ids.append(0)
+                p_input_mask.append(0)
+                p_segment_ids.append(0)
 
-            assert len(input_ids) == max_seq_length
-            assert len(input_mask) == max_seq_length
-            assert len(segment_ids) == max_seq_length
+            assert len(p_input_ids) == max_seq_length
+            assert len(p_input_mask) == max_seq_length
+            assert len(p_segment_ids) == max_seq_length
 
             start_position = None
             end_position = None
@@ -284,9 +292,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                     tokens=tokens,
                     token_to_orig_map=token_to_orig_map,
                     token_is_max_context=token_is_max_context,
-                    input_ids=input_ids,
-                    input_mask=input_mask,
-                    segment_ids=segment_ids,
+                    p_input_ids=p_input_ids,
+                    p_input_mask=p_input_mask,
+                    p_segment_ids=p_segment_ids,
                     start_position=start_position,
                     end_position=end_position))
             unique_id += 1

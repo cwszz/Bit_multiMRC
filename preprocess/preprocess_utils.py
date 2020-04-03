@@ -465,6 +465,8 @@ def main():
         max_recall_list = []
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
+            if(total_num > 20):
+                break
             total_num += 1
             if args.output:
                 preprocessed_sample = {}
