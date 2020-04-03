@@ -74,14 +74,14 @@ def train(args, train_dataset, model, tokenizer):
         model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
     # multi-gpu training (should be after apex fp16 initialization)
-    # if args.n_gpu > 1:
-    #     model = torch.nn.DataParallel(model)
+    if args.n_gpu > 1:
+        model = torch.nn.DataParallel(model)
 
-    # # Distributed training (should be after apex fp16 initialization)
-    # if args.local_rank != -1:
-    #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
-    #                                                       output_device=args.local_rank,
-    #                                                       find_unused_parameters=True)
+    # Distributed training (should be after apex fp16 initialization)
+    if args.local_rank != -1:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+                                                          output_device=args.local_rank,
+                                                          find_unused_parameters=True)
 
     # Train!
     logger.info("***** Running training *****")
@@ -110,7 +110,7 @@ def train(args, train_dataset, model, tokenizer):
                       'end_positions':   batch[4]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
-            # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
+            # 这个时候output出来的 应该是start 和 end 的概率啊
             if args.n_gpu > 1:
                 loss = loss.mean() # mean() to average on multi-gpu parallel (not distributed) training
             if args.gradient_accumulation_steps > 1:
@@ -416,8 +416,6 @@ def main():
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         args.n_gpu = torch.cuda.device_count()
-        if(device == 'cpu'): #zhq: 设置CPU不用分布，测试专用
-            args.n_gpu = 1
     else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
