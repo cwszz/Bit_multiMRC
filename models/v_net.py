@@ -11,6 +11,9 @@ from transformers.file_utils import add_start_docstrings
 from transformers.modeling_bert import (BERT_INPUTS_DOCSTRING,
                                         BERT_START_DOCSTRING, BertModel,
                                         BertPreTrainedModel)
+MODEL_CLASSES = {
+    'bert': (BertConfig, BertForBaiduQA_Answer_Selection, BertTokenizer)
+}
 
 @add_start_docstrings("""Bert Model with a span classification head on top for extractive question-answering tasks like Duqa (a linear layers on top of
     the hidden-states output to compute `span start logits` and `span end logits`). """,
@@ -20,6 +23,9 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForBaiduQA_Answer_Selection, self).__init__(config)
         self.bert = BertModel(config)
+        # -----zhq
+        self.lstm = nn.LSTM(input_size=config.hidden_size,hidden_size=config.hidden_size,num_layers=2,bidirectional=True)
+        # =======zhq
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 
         self.init_weights()
@@ -59,3 +65,10 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             outputs = (total_loss,) + outputs
 
         return outputs  # (loss), start_logits, end_logits, (hidden_states), (attentions)
+
+config_class, model_class, tokenizer_class = MODEL_CLASSES['bert']
+config = config_class.from_pretrained('checkpoints/chinese_L-12_H-768_A-12')
+test_model = BertForBaiduQA_Answer_Selection(config = config)
+example ={}
+example['doc_span_index'] = 0
+example = 
