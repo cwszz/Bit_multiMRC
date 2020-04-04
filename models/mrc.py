@@ -21,11 +21,11 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForBaiduQA_Answer_Selection, self).__init__(config)
         self.bert = BertModel(config)
-        self.lstmlayers = 2
+        self.lstmlayers = 1
         self.config = config
         # -----zhq
         self.lstm = nn.LSTM(input_size=config.hidden_size,hidden_size=config.hidden_size,
-            num_layers=self.lstmlayers,bidirectional=True,batch_first=True)
+            num_layers=self.lstmlayers,bidirectional=True,batch_first=False)
         # =======zhq
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
         self.init_weights()
@@ -45,17 +45,22 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                             position_ids=q_position_ids, 
                             head_mask=q_head_mask)
         p_embedding = p_outputs[0]
-        q_embedding = q_outputs[0]
+        q_embedding = q_outputs[0] # size(batch,seq,hidden)
+        p_embedding = p_embedding.transpose(0,1)
+        q_embedding = q_embedding.transpose(0,1)
         # if self.use_cuda:
         #     h_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size).cuda())
         #     c_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size).cuda())
         # else:
         #     h_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size))
         #     c_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size))
-        h_0 = Variable(torch.zeros(p_input_ids.size(0),self.lstmlayers,self.config.hiddensize))
-        c_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size))
-        p_ = self.lstm(p_embedding)
-
+        #     注意把h,c放到cuda上
+        h_0_q = Variable(torch.zeros(self.lstmlayers*2, q_input_ids.size(0), self.config.hidden_size)) # 乘2因为是双向
+        c_0_q = Variable(torch.zeros(self.lstmlayers*2, q_input_ids.size(0), self.config.hidden_size))
+        h_0_p = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(0), self.config.hidden_size)) # 乘2因为是双向
+        c_0_p = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(0), self.config.hidden_size))
+        p_features,(p_final_hidden_state, p_final_cell_state) = self.lstm(p_embedding,(h_0_p,c_0_p))
+        q_features,(q_final_hidden_state, q_final_cell_state) = self.lstm(q_embedding,(h_0_q,c_0_q))
         logits = self.qa_outputs(sequence_output)  # logits 是batch里所有的数据个数32 * 长度512 * (start and end) 2
         start_logits, end_logits = logits.split(1, dim=-1)       
         start_logits = start_logits.squeeze(-1)
