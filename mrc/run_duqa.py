@@ -103,11 +103,14 @@ def train(args, train_dataset, model, tokenizer):
         for step, batch in tqdm(enumerate(epoch_iterator), desc='training batches'):
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
-            inputs = {'input_ids':       batch[0],
-                      'attention_mask':  batch[1], 
-                      'token_type_ids':  batch[2],  
-                      'start_positions': batch[3], 
-                      'end_positions':   batch[4]}
+            inputs = {'q_input_ids':       batch[0],
+                      'q_attention_mask':  batch[1], 
+                      'q_token_type_ids':  batch[2],  
+                      'p_input_ids':       batch[3],
+                      'p_attention_mask':  batch[4], 
+                      'p_token_type_ids':  batch[5],  
+                      'start_positions':   batch[6], 
+                      'end_positions':     batch[7]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
@@ -300,16 +303,21 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
     # Convert to Tensors and build dataset
-    all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-    all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
-    all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+    all_q_input_ids = torch.tensor([f.q_input_ids for f in features], dtype=torch.long)
+    all_q_input_mask = torch.tensor([f.q_input_mask for f in features], dtype=torch.long)
+    all_q_segment_ids = torch.tensor([f.q_segment_ids for f in features], dtype=torch.long)
+    all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
+    all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
+    all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
     if evaluate:
-        all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-        dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
+        all_example_index = torch.arange(all_p_input_ids.size(0), dtype=torch.long)
+        dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,all_p_input_ids, 
+                                    all_p_input_mask, all_p_segment_ids, all_example_index)
     else:
         all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
         all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
-        dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
+        dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,
+                                all_p_input_ids, all_p_input_mask, all_p_segment_ids,
                                 all_start_positions, all_end_positions)
         
     if output_examples:

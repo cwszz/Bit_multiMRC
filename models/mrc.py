@@ -7,6 +7,7 @@ import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
 
+from torch.autograd import Variable
 from transformers.file_utils import add_start_docstrings
 from transformers.modeling_bert import (BERT_INPUTS_DOCSTRING,
                                         BERT_START_DOCSTRING, BertModel,
@@ -20,27 +21,47 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForBaiduQA_Answer_Selection, self).__init__(config)
         self.bert = BertModel(config)
+        self.lstmlayers = 2
+        self.config = config
+        # -----zhq
+        self.lstm = nn.LSTM(input_size=config.hidden_size,hidden_size=config.hidden_size,
+            num_layers=self.lstmlayers,bidirectional=True,batch_first=True)
+        # =======zhq
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
-
         self.init_weights()
     
-    def forward(self, input_ids, attention_mask=None, token_type_ids=None, position_ids=None, head_mask=None,
+    def forward(self, q_input_ids,  p_input_ids,q_attention_mask=None, q_token_type_ids=None, q_position_ids=None, q_head_mask=None,
+                p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,
                 start_positions=None, end_positions=None):
 
-        outputs = self.bert(input_ids,
-                            attention_mask=attention_mask,
-                            token_type_ids=token_type_ids,
-                            position_ids=position_ids, 
-                            head_mask=head_mask)
-        
-        sequence_output = outputs[0]
+        p_outputs = self.bert(p_input_ids,
+                            attention_mask=p_attention_mask,
+                            token_type_ids=p_token_type_ids,
+                            position_ids=p_position_ids, 
+                            head_mask=p_head_mask)
+        q_outputs = self.bert(q_input_ids,
+                            attention_mask=q_attention_mask,
+                            token_type_ids=q_token_type_ids,
+                            position_ids=q_position_ids, 
+                            head_mask=q_head_mask)
+        p_embedding = p_outputs[0]
+        q_embedding = q_outputs[0]
+        # if self.use_cuda:
+        #     h_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size).cuda())
+        #     c_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size).cuda())
+        # else:
+        #     h_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size))
+        #     c_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size))
+        h_0 = Variable(torch.zeros(p_input_ids.size(0),self.lstmlayers,self.config.hiddensize))
+        c_0 = Variable(torch.zeros(self.layer_size, self.batch_size, self.hidden_size))
+        p_ = self.lstm(p_embedding)
 
         logits = self.qa_outputs(sequence_output)  # logits 是batch里所有的数据个数32 * 长度512 * (start and end) 2
         start_logits, end_logits = logits.split(1, dim=-1)       
         start_logits = start_logits.squeeze(-1)
         end_logits = end_logits.squeeze(-1) #提取成end_logits
 
-        outputs = (start_logits, end_logits,) + outputs[2:]
+        outputs = (start_logits, end_logits,) + p_outputs[2:]
         if start_positions is not None and end_positions is not None:
             # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:

@@ -53,6 +53,7 @@ class BaiduExample(object):
 
 class InputFeatures(object):
     """A single set of features of data."""
+    # zhq: 增加问题的编码，目前觉得q不需要对照表所以没有map
     def __init__(self,
                  unique_id,
                  example_index,
@@ -74,6 +75,9 @@ class InputFeatures(object):
         self.tokens = tokens
         self.token_to_orig_map = token_to_orig_map
         self.token_is_max_context = token_is_max_context
+        self.q_input_ids = q_input_ids
+        self.q_input_mask = q_input_mask
+        self.q_segment_ids = q_segment_ids
         self.p_input_ids = p_input_ids
         self.p_input_mask = p_input_mask
         self.p_segment_ids = p_segment_ids
@@ -227,9 +231,11 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             token_to_orig_map = {}
             token_is_max_context = {}
             p_segment_ids = []
-            # 因为需要建立一个从字到词的对应表，所以还得一个一个弄
-             = tokenizer.build_inputs_with_special_tokens(all_doc_tokens)
-            q_p_segment_ids = tokenizer.create_token_type_ids_from_sequences(tokens)
+            # 文章因为需要建立一个从字到词的对应表，所以还得一个一个弄
+            q_ids = tokenizer.convert_tokens_to_ids(query_tokens)
+            q_input_ids = tokenizer.build_inputs_with_special_tokens(q_ids)
+            q_segment_ids = tokenizer.create_token_type_ids_from_sequences(q_ids)
+            q_input_mask = [1] * len(q_input_ids)
             # 这里尝试把一个SEP给删掉
             tokens.append("[CLS]")
             # p_segment_ids.append(0)
@@ -259,11 +265,19 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             p_input_mask = [1] * len(p_input_ids)
 
             # Zero-pad up to the sequence length.
+            while len(q_input_ids) < max_query_length:
+                q_input_ids.append(0)
+                q_input_mask.append(0)
+                q_segment_ids.append(0)
             while len(p_input_ids) < max_seq_length:
                 p_input_ids.append(0)
                 p_input_mask.append(0)
                 p_segment_ids.append(0)
 
+            assert len(q_input_ids) == max_query_length
+            assert len(q_input_mask) == max_query_length
+            assert len(q_segment_ids) == max_query_length 
+            
             assert len(p_input_ids) == max_seq_length
             assert len(p_input_mask) == max_seq_length
             assert len(p_segment_ids) == max_seq_length
@@ -292,6 +306,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                     tokens=tokens,
                     token_to_orig_map=token_to_orig_map,
                     token_is_max_context=token_is_max_context,
+                    q_input_ids=q_input_ids,
+                    q_input_mask=q_input_mask,
+                    q_segment_ids=q_segment_ids,
                     p_input_ids=p_input_ids,
                     p_input_mask=p_input_mask,
                     p_segment_ids=p_segment_ids,
