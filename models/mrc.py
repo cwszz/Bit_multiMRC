@@ -30,8 +30,12 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             num_layers=self.lstmlayers,bidirectional=True,batch_first=False)
         self.score = nn.Linear(self.lstmlayers* 2 * 3 * config.hidden_size, 1)
         # 2是双向，3是Bi-DAF （p,q,p·q）元素对应相乘
-        self.lstm_m = nn.LSTM(input_size=config.hidden_size*8, hidden_size=config.hidden_size*8 ,num_layers=1,
+        self.lstm_m = nn.LSTM(input_size=config.hidden_size*8, hidden_size=config.hidden_size ,num_layers=1,
             bidirectional=True,batch_first=True)
+        self.w2_b = nn.Linear(config.hidden_size * 2 * 2,config.hidden_size *2)
+        self.w2_a = nn.Linear(config.hidden_size * 2, 1)
+        self.lstm_boundary = nn.LSTM(input_size= config.hidden_size * 2, hidden_size=config.hidden_size,num_layers=1,
+            bidirectional=True,batch_first= True) 
         # =======zhq
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
         self.init_weights()
@@ -87,7 +91,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         # 构建加权
         for i,(each_attn,each_q_word) in enumerate(zip(q2c_attention,q_features)):
             new_p_features_u[i] = each_attn.mm(each_q_word)
-        # 获得q2c的加权特征
+        # 获得q2c的加权特征  可能可以简化一下
         new_p_features_h = torch.zeros(p_features.size())
         for i, (each_c2q,p_feature) in enumerate(zip(c2q_attention,p_features)):
             for j,(c2q_weight,p_word_feature) in enumerate(zip(each_c2q,p_feature)):
@@ -102,12 +106,32 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         # final_p_features2 = torch.zeros(p_features.size(0),p_features.size(1),p_features.size(2)*4)
         final_p_features = torch.cat((p_features,new_p_features_h,p_features.mul(new_p_features_u),p_features.mul(new_p_features_h)),-1)  
         # 构建最终的表示 [h;u ̃;h◦u ̃;h◦h ̃]
-        final_p_features =final_p_features.transpose(0,1)
-        h_0_p = Variable(torch.zeros(self.lstmlayers*2, final_p_features.size(0), self.config.hidden_size*8)) # 乘2因为是双向
-        c_0_p = Variable(torch.zeros(self.lstmlayers*2, final_p_features.size(0), self.config.hidden_size*8))
+        # final_p_features =final_p_features.transpose(0,1) 已经是batch first 不用转了
+        h_0_p = Variable(torch.zeros(self.lstmlayers*2, final_p_features.size(0), self.config.hidden_size)) # 乘2因为是双向
+        c_0_p = Variable(torch.zeros(self.lstmlayers*2, final_p_features.size(0), self.config.hidden_size))
         final_p_features,(p_final_hidden_state, p_final_cell_state) = self.lstm_m(final_p_features,(h_0_p,c_0_p)) # seq_length batch hidden
-        # new_p_features = torch.Tensor(new_p_features)  
-        print(new_p_features_h.size())
+        # 再经过一次LSTM
+        # Pointer Network
+        # final_p_features = final_p_features.transpose(0,1) # 变成batch seq hid
+        """第一次计算START，alpha1就是开始概率"""
+        h_0_a = Variable(torch.zeros(final_p_features.size(0),1,final_p_features.size(2))) # 这个不知道人家咋初始化的
+        # c_0_a = Variable(torch.zeros(final_p_features.size()))
+        g_1 = self.w2_a(torch.tanh(self.w2_b(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
+            ,2)))).squeeze(2) # 把h_0_a 扩充成512个词的，在hidden层拼接
+        # g_1 是 （5）
+        alpha_1 = torch.softmax(g_1,1).unsqueeze(1)
+        c_1 = Variable(torch.zeros(final_p_features.size(0),1, final_p_features.size(2))) #hiddensize 和h_0_a一致
+        for i, (each_alpha_1,each_p_feature) in enumerate(zip(alpha_1,final_p_features)):
+            c_1[i] = each_alpha_1.mm(each_p_feature)
+        h_0_a ,(p_final_hidden_state, p_final_cell_state)= self.lstm_boundary(c_1,(h_0_p,c_0_p))
+        
+        g_2 = self.w2_a(torch.tanh(self.w2_b(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
+            ,2)))).squeeze(2) # 把h_0_a 扩充成512个词的，在hidden层拼接
+        # g_1 是 （5）
+        alpha_2 = torch.softmax(g_2,1).unsqueeze(1)
+        start = torch.max(alpha_1,2)
+        end = torch.max(alpha_2,2)
+
         
         logits = self.qa_outputs(sequence_output)  # logits 是batch里所有的数据个数32 * 长度512 * (start and end) 2
         start_logits, end_logits = logits.split(1, dim=-1)       
