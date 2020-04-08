@@ -23,7 +23,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -44,6 +44,7 @@ def to_list(tensor):
 
 def train(args, train_dataset, model, tokenizer):
     """ Train the model """
+
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
 
@@ -419,7 +420,6 @@ def main():
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
         raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
-
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -429,8 +429,7 @@ def main():
     else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
-        torch.distributed.init_process_group(backend='nccl')
-        args.n_gpu = 1    
+        torch.distributed.init_process_group(backend='nccl',rank= args.local_rank)
     args.device = device
 
     # Setup logging
@@ -456,7 +455,6 @@ def main():
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
     model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
