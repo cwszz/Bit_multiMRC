@@ -525,13 +525,19 @@ def main():
 
             if args.output:
                 try:
+                    preprocessed_sample['right_doc'] = answer_doc
+                    preprocessed_sample['documents'] = []
+                    for i in range(5):
+                        my_doc_tokens = [word for para in sample['documents'][i]['segmented_paragraphs'][0] for word in para]
+                        doc_length = len(my_doc_tokens)
+                        preprocessed_sample['documents'].append({'doc_tokens':my_doc_tokens,'doc_length':doc_length})
                     preprocessed_sample['question'] = sample['question']
                     preprocessed_sample['question_id'] = sample['question_id']
                     if args.mode == "train":
                         preprocessed_sample['answer'] = sample['fake_answers']
                         preprocessed_sample['answer_span'] = sample['answer_spans'][0]
-                    preprocessed_sample['doc_tokens'] = [word for para in sample['passage_tokens'] for word in para]
-                    preprocessed_sample['doc_tokens_len'] = len(preprocessed_sample['doc_tokens'])
+                    # preprocessed_sample['doc_tokens'] = [word for para in sample['passage_tokens'] for word in para]
+                    # preprocessed_sample['doc_tokens_len'] = len(preprocessed_sample['doc_tokens'])
                     f_output.write(json.dumps(preprocessed_sample, ensure_ascii=False) + '\n')
                 except Exception as e:
                     pass
