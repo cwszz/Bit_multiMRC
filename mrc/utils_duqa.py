@@ -24,13 +24,15 @@ class BaiduExample(object):
     def __init__(self,
                  qas_id,
                  question_text,
-                 doc_tokens,
+                 documents,
+                 right_num = None,
                  orig_answer_text=None,
                  start_position=None,
                  end_position=None,):
         self.qas_id = qas_id
         self.question_text = question_text
-        self.doc_tokens = doc_tokens
+        self.documents = documents
+        self.right_num = right_num
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
         self.end_position = end_position
@@ -43,7 +45,9 @@ class BaiduExample(object):
         s += "qas_id: %s" % (self.qas_id)
         s += ", question_text: %s" % (
             self.question_text)
-        s += ", doc_tokens: [%s]" % (" ".join(self.doc_tokens))
+        s += ", documetns: [%s]" % (" ".join(self.documents))
+        if self.right_num:
+            s += ", right_num: %d" % (self.right_num)
         if self.start_position:
             s += ", start_position: %d" % (self.start_position)
         if self.start_position:
@@ -98,7 +102,10 @@ def read_baidu_examples(input_file, is_training):
             example = json.loads(line)
             qas_id = example['question_id']
             question_text = example['question']
-            context_tokens = example['doc_tokens']
+            right_num = example['right_doc']
+            docs = example['documents']
+            right_doc_tokens = example['documents'][right_num]['doc_tokens']
+            # context_tokens = example['doc_tokens']
             start_position = None
             end_position = None
             orig_answer_text = None
@@ -110,7 +117,7 @@ def read_baidu_examples(input_file, is_training):
                 end_position = int(example['answer_span'][1])
 
                 # 检测一下给出的fake answer 能否在文中找出来。 找不出来就跳过。
-                actual_text = "".join(context_tokens[start_position:(end_position+1)])
+                actual_text = "".join(right_doc_tokens[start_position:(end_position+1)])
                 cleaned_answer_text = orig_answer_text
                 if actual_text.find(cleaned_answer_text) == -1:
                     flag += 1
@@ -118,7 +125,8 @@ def read_baidu_examples(input_file, is_training):
             per_example = BaiduExample(
                 qas_id=qas_id,
                 question_text=question_text,
-                doc_tokens=context_tokens,
+                documents=docs,
+                right_num = right_num,
                 orig_answer_text=orig_answer_text,
                 start_position=start_position,
                 end_position=end_position,
@@ -141,7 +149,11 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         # seg para就是 分词后的文本
         qas_id = example['question_id']
         question_text = example['question']
-        context_tokens = example['doc_tokens']
+        # context_tokens = example['doc_tokens']
+        right_num = example['right_doc']
+        docs = example['documents']
+        right_doc_tokens = example['documents'][right_num]['doc_tokens']
+        # context_tokens = example['doc_tokens']
         start_position = None
         end_position = None
         orig_answer_text = None
@@ -154,7 +166,7 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
 
             # 检测一下给出的fake answer 能否在文中找出来。 找不出来就跳过。
             actual_text = "".join(
-                context_tokens[start_position:(end_position + 1)])
+                right_doc_tokens[start_position:(end_position + 1)])
             cleaned_answer_text = orig_answer_text
             if actual_text.find(cleaned_answer_text) == -1:
                 logger.warning("Could not find answer: '%s' vs. '%s'",
@@ -163,7 +175,8 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         per_example = BaiduExample(
             qas_id=qas_id,
             question_text=question_text,
-            doc_tokens=context_tokens,
+            documents=docs,
+            right_num = right_num,
             orig_answer_text=orig_answer_text,
             start_position=start_position,
             end_position=end_position,
