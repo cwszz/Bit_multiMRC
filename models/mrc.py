@@ -68,6 +68,8 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                             head_mask=q_head_mask)
         q_embedding = q_outputs[0] # size(batch,seq,hidden)
         q_embedding = q_embedding.transpose(0,1)
+        final_loss = 0
+        R_A = []
         for doc_index, (each_doc_p_input_id,each_doc_p_attention_mask,each_doc_p_token_type) in enumerate(zip(p_input_ids,p_attention_mask, p_token_type_ids)):
             p_outputs = self.bert(each_doc_p_input_id,
                                 attention_mask=each_doc_p_attention_mask,
@@ -147,37 +149,49 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             """计算ground_truth的概率"""
             # poss = torch.sigmoid(self.w1_c(torch.relu(self.w2_c(final_p_features))))
             poss = self.content_predict(final_p_features)
-        """"计算Loss"""
-        if start_positions[doc_index] != 0  and end_positions[doc_index] != 0:
-            # If we are on multi-GPU, split add a dimension
-            """part 1 loss"""
-            if len(start_positions[doc_index].size()) > 1:
-                start_positions[doc_index] = start_positions[doc_index].squeeze(-1)
-            if len(end_positions[doc_index].size()) > 1:
-                end_positions[doc_index] = end_positions[doc_index].squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
-            ignored_index = alpha_1.size(1)
-            start_positions[doc_index].clamp_(0, ignored_index)
-            end_positions[doc_index].clamp_(0, ignored_index)
-            loss_func = nn.NLLLoss(ignore_index= ignored_index)
-            # loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
-            start_loss = loss_func(alpha_1, start_positions[doc_index])
-            end_loss = loss_func(alpha_2, end_positions[doc_index])
-            ans_total_loss = (start_loss + end_loss) / 2  # 这个loss算的没毛病，pointer标准的loss
-            """part 2 loss"""
-            # neg_poss = torch.ones(poss.size()).to(device).add(poss * -1)  # 1 - poss
-            answer_span = torch.zeros(poss.size(0),poss.size(1))
-            # no_answer_span = torch.ones(poss.size(0),poss.size(1))
-            for (each_answer_span, start_position,end_position) in zip(answer_span,start_positions,end_positions):
-                for i in range(end_position-start_position):
-                    each_answer_span[i+start_position] = 1
-                    # each_no_answer_span[i+start_position] = 0
-            content_loss = 0.0 
-            for (each_batch_answer_span,each_batch_poss) in zip(answer_span,poss):
-                for (each_word_ans,each_word_poss) in zip(each_batch_answer_span,each_batch_poss):
-                    content_loss += each_word_ans * torch.log(each_word_poss) + (1-each_word_ans) * torch.log(1-each_word_poss)
-            content_loss = -1 * content_loss/(poss.size(0)*poss.size(1))
-        return (ans_total_loss + 0.5 * content_loss)
+            """Verify ready_Part"""
+            verify_poss = poss.transpose(1,2)
+            r_A = Variable(torch.zeros(final_p_features.size(0),p_embedding.size(-1)))
+            p_embedding = p_embedding.transpose(0,1)
+            for word_num, (each_poss,each_p_embedding)  in enumerate(zip(verify_poss,p_embedding)):
+                r_A[word_num] = torch.div(each_poss.mm(each_p_embedding),p_embedding.size(1))
+            R_A.append(r_A)
+            """"针对包含答案的文章，计算Loss"""
+            if start_positions[doc_index] != 0  and end_positions[doc_index] != 0:
+                # If we are on multi-GPU, split add a dimension
+                """part 1 loss"""
+                if len(start_positions[doc_index].size()) > 1:
+                    start_positions[doc_index] = start_positions[doc_index].squeeze(-1)
+                if len(end_positions[doc_index].size()) > 1:
+                    end_positions[doc_index] = end_positions[doc_index].squeeze(-1)
+                # sometimes the start/end positions are outside our model inputs, we ignore these terms
+                ignored_index = alpha_1.size(1)
+                start_positions[doc_index].clamp_(0, ignored_index)
+                end_positions[doc_index].clamp_(0, ignored_index)
+                loss_func = nn.NLLLoss(ignore_index= ignored_index)
+                # loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
+                start_loss = loss_func(alpha_1, start_positions[doc_index])
+                end_loss = loss_func(alpha_2, end_positions[doc_index])
+                ans_total_loss = (start_loss + end_loss) / 2  # 这个loss算的没毛病，pointer标准的loss
+                """part 2 loss"""
+                # neg_poss = torch.ones(poss.size()).to(device).add(poss * -1)  # 1 - poss
+                answer_span = torch.zeros(poss.size(0),poss.size(1))
+                # no_answer_span = torch.ones(poss.size(0),poss.size(1))
+                for (each_answer_span, start_position,end_position) in zip(answer_span,start_positions,end_positions):
+                    for i in range(end_position-start_position):
+                        each_answer_span[i+start_position] = 1
+                        # each_no_answer_span[i+start_position] = 0
+                content_loss = 0.0 
+                for (each_batch_answer_span,each_batch_poss) in zip(answer_span,poss):
+                    for (each_word_ans,each_word_poss) in zip(each_batch_answer_span,each_batch_poss):
+                        content_loss += each_word_ans * torch.log(each_word_poss) + (1-each_word_ans) * torch.log(1-each_word_poss)
+                content_loss = -1 * content_loss/(poss.size(0)*poss.size(1))
+                final_loss += ans_total_loss + 0.5 * content_loss
+        s = Variable(torch.zeros(p_input_ids.size(0),p_input_ids.size(0)))
+        for i, r_1 in enumerate(R_A):
+            for j, r_2 in enumerate(R_A):
+                s[i][j] = r_1.mm(r_2)
+        # return (ans_total_loss + 0.5 * content_loss)
             # outputs = (total_loss,) + (alpha_1,alpha_2)
       
 
