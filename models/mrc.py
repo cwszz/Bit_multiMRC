@@ -55,6 +55,9 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                 p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,
                 start_positions=None, end_positions=None):
         device = p_input_ids.device
+        """transpose batch and docs"""
+        p_position_ids.transpose(0,1)
+        
         """Embedding"""
         p_outputs = self.bert(p_input_ids,
                             attention_mask=p_attention_mask,

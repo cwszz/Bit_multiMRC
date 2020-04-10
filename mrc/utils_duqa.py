@@ -197,137 +197,155 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
 
         if len(query_tokens) > max_query_length:
             query_tokens = query_tokens[0:max_query_length]
+        """问题的特征获取"""
+        q_ids = tokenizer.convert_tokens_to_ids(query_tokens)
+        q_input_ids = tokenizer.build_inputs_with_special_tokens(q_ids)
+        q_segment_ids = tokenizer.create_token_type_ids_from_sequences(q_ids)
+        q_input_mask = [1] * len(q_input_ids)
+        while len(q_input_ids) < max_query_length:
+            q_input_ids.append(0)
+            q_input_mask.append(0)
+            q_segment_ids.append(0)
+        assert len(q_input_ids) == max_query_length
+        assert len(q_input_mask) == max_query_length
+        assert len(q_segment_ids) == max_query_length 
+        """针对每一篇文章来获取文章特征""" 
+        docs_tok_to_orig_index = []
+        docs_start_position = []
+        docs_end_position = []
+        docs_orig_to_tok_index = []
+        docs_all_doc_tokens = []
+        docs_p_input_ids = []
+        docs_p_input_masks = []
+        docs_p_to_ori_map = []
+        docs_p_tokens = []
+        docs_p_segment_ids = [] #检查对应性
+        for j in range(len(example.documents)):
+            tok_to_orig_index = []
+            orig_to_tok_index = []
+            all_doc_tokens = []
+            for (i, token) in enumerate(example.documents[j]['doc_tokens']):
+                orig_to_tok_index.append(len(all_doc_tokens))
+                sub_tokens = tokenizer.tokenize(token)           # 一个中文单词 eg:保存
+                for sub_token in sub_tokens:
+                    tok_to_orig_index.append(i)
+                    all_doc_tokens.append(sub_token)
+            docs_all_doc_tokens.append(all_doc_tokens)
+            docs_orig_to_tok_index.append(orig_to_tok_index)
+            docs_tok_to_orig_index.append(tok_to_orig_index)
 
-        tok_to_orig_index = []
-        orig_to_tok_index = []
-        all_doc_tokens = []
-        for (i, token) in enumerate(example.doc_tokens):
-            orig_to_tok_index.append(len(all_doc_tokens))
-            sub_tokens = tokenizer.tokenize(token)           # 一个中文单词 eg:保存
-            for sub_token in sub_tokens:
-                tok_to_orig_index.append(i)
-                all_doc_tokens.append(sub_token)
+            tok_start_position = None
+            tok_end_position = None
+            if j == example.right_num and  is_training:
+                tok_start_position = orig_to_tok_index[example.start_position]
+                if example.end_position < len(example.documents[example.right_num]['doc_tokens']) - 1:
+                    tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
+                else:
+                    tok_end_position = len(all_doc_tokens) - 1
+                (tok_start_position, tok_end_position) = _improve_answer_span(
+                    all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
+                    example.orig_answer_text)
 
-        tok_start_position = None
-        tok_end_position = None
-        if is_training:
-            tok_start_position = orig_to_tok_index[example.start_position]
-            if example.end_position < len(example.doc_tokens) - 1:
-                tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
-            else:
-                tok_end_position = len(all_doc_tokens) - 1
-            (tok_start_position, tok_end_position) = _improve_answer_span(
-                all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
-                example.orig_answer_text)
+            # The -3 accounts for [CLS], [SEP] and [SEP]
+            max_tokens_for_doc = max_seq_length - len(query_tokens) - 3
 
-        # The -3 accounts for [CLS], [SEP] and [SEP]
-        max_tokens_for_doc = max_seq_length - len(query_tokens) - 3
+            # We can have documents that are longer than the maximum sequence length.
+            # To deal with this we do a sliding window approach, where we take chunks
+            # of the up to our max length with a stride of `doc_stride`.
+            _DocSpan = collections.namedtuple(  # pylint: disable=invalid-name  这里要用滑块，比如600长的文章分为0-500+，128-600+两篇文章
+                "DocSpan", ["start", "length"])
+            doc_spans = []
+            start_offset = 0
+            while start_offset < len(all_doc_tokens):
+                length = len(all_doc_tokens) - start_offset
+                if length > max_tokens_for_doc:
+                    length = max_tokens_for_doc
+                doc_spans.append(_DocSpan(start=start_offset, length=length))
+                if start_offset + length == len(all_doc_tokens):
+                    break
+                start_offset += min(length, doc_stride)
 
-        # We can have documents that are longer than the maximum sequence length.
-        # To deal with this we do a sliding window approach, where we take chunks
-        # of the up to our max length with a stride of `doc_stride`.
-        _DocSpan = collections.namedtuple(  # pylint: disable=invalid-name
-            "DocSpan", ["start", "length"])
-        doc_spans = []
-        start_offset = 0
-        while start_offset < len(all_doc_tokens):
-            length = len(all_doc_tokens) - start_offset
-            if length > max_tokens_for_doc:
-                length = max_tokens_for_doc
-            doc_spans.append(_DocSpan(start=start_offset, length=length))
-            if start_offset + length == len(all_doc_tokens):
-                break
-            start_offset += min(length, doc_stride)
-
-        for (doc_span_index, doc_span) in enumerate(doc_spans):
-            tokens = []
-            token_to_orig_map = {}
-            token_is_max_context = {}
-            p_segment_ids = []
-            # 文章因为需要建立一个从字到词的对应表，所以还得一个一个弄
-            q_ids = tokenizer.convert_tokens_to_ids(query_tokens)
-            q_input_ids = tokenizer.build_inputs_with_special_tokens(q_ids)
-            q_segment_ids = tokenizer.create_token_type_ids_from_sequences(q_ids)
-            q_input_mask = [1] * len(q_input_ids)
-            # 这里尝试把一个SEP给删掉
-            tokens.append("[CLS]")
-            # p_segment_ids.append(0)
-            # for token in query_tokens:
-            #     tokens.append(token)
-            #     p_segment_ids.append(0)
-            # tokens.append("[SEP]")
-            p_segment_ids.append(0)
-
-            for i in range(doc_span.length):
-                split_token_index = doc_span.start + i
-                token_to_orig_map[len(tokens)] = tok_to_orig_index[split_token_index]
-
-                is_max_context = _check_is_max_context(doc_spans, doc_span_index,
-                                                       split_token_index)
-                token_is_max_context[len(tokens)] = is_max_context
-                tokens.append(all_doc_tokens[split_token_index])
-                p_segment_ids.append(0)
-            tokens.append("[SEP]")
-            p_segment_ids.append(0)
-            # cls = [tokenizer.cls_token_id]
-            # p_segment_ids = tokenizer.create_token_type_ids_from_sequences(tokens)
-            p_input_ids = tokenizer.convert_tokens_to_ids(tokens)
-
-            # The mask has 1 for real tokens and 0 for padding tokens. Only real
-            # tokens are attended to.
-            p_input_mask = [1] * len(p_input_ids)
-
-            # Zero-pad up to the sequence length.
-            while len(q_input_ids) < max_query_length:
-                q_input_ids.append(0)
-                q_input_mask.append(0)
-                q_segment_ids.append(0)
-            while len(p_input_ids) < max_seq_length:
-                p_input_ids.append(0)
-                p_input_mask.append(0)
+            for (doc_span_index, doc_span) in enumerate(doc_spans):
+                tokens = []
+                token_to_orig_map = {}
+                token_is_max_context = {}
+                p_segment_ids = []
+                # 文章因为需要建立一个从字到词的对应表，所以还得一个一个弄
+                tokens.append("[CLS]")
                 p_segment_ids.append(0)
 
-            assert len(q_input_ids) == max_query_length
-            assert len(q_input_mask) == max_query_length
-            assert len(q_segment_ids) == max_query_length 
-            
-            assert len(p_input_ids) == max_seq_length
-            assert len(p_input_mask) == max_seq_length
-            assert len(p_segment_ids) == max_seq_length
+                for i in range(doc_span.length):
+                    split_token_index = doc_span.start + i
+                    token_to_orig_map[len(tokens)] = tok_to_orig_index[split_token_index]
 
-            start_position = None
-            end_position = None
-            if is_training:
-                # For training, if our document chunk does not contain an annotation
-                # we throw it out, since there is nothing to predict.
-                doc_start = doc_span.start
-                doc_end = doc_span.start + doc_span.length - 1
-                if (example.start_position < doc_start or
-                        example.end_position < doc_start or
-                        example.start_position > doc_end or example.end_position > doc_end):
-                    continue
+                    is_max_context = _check_is_max_context(doc_spans, doc_span_index,
+                                                            split_token_index)
+                    token_is_max_context[len(tokens)] = is_max_context
+                    tokens.append(all_doc_tokens[split_token_index])
+                    p_segment_ids.append(0)
+                tokens.append("[SEP]")
+                p_segment_ids.append(0)
+                # cls = [tokenizer.cls_token_id]
+                # p_segment_ids = tokenizer.create_token_type_ids_from_sequences(tokens)
+                p_input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
-                doc_offset = len(query_tokens) + 2
-                start_position = tok_start_position - doc_start + doc_offset
-                end_position = tok_end_position - doc_start + doc_offset
+                # The mask has 1 for real tokens and 0 for padding tokens. Only real
+                # tokens are attended to.
+                p_input_mask = [1] * len(p_input_ids)
 
-            features.append(
-                InputFeatures(
-                    unique_id=unique_id,
-                    example_index=example_index,
-                    doc_span_index=doc_span_index,
-                    tokens=tokens,
-                    token_to_orig_map=token_to_orig_map,
-                    token_is_max_context=token_is_max_context,
-                    q_input_ids=q_input_ids,
-                    q_input_mask=q_input_mask,
-                    q_segment_ids=q_segment_ids,
-                    p_input_ids=p_input_ids,
-                    p_input_mask=p_input_mask,
-                    p_segment_ids=p_segment_ids,
-                    start_position=start_position,
-                    end_position=end_position))
-            unique_id += 1
+                # Zero-pad up to the sequence length.
+                
+                while len(p_input_ids) < max_seq_length:
+                    p_input_ids.append(0)
+                    p_input_mask.append(0)
+                    p_segment_ids.append(0)
+                    
+                assert len(p_input_ids) == max_seq_length
+                assert len(p_input_mask) == max_seq_length
+                assert len(p_segment_ids) == max_seq_length
+                
+                start_position = 0
+                end_position = 0 
+
+                if(j == example.right_num and is_training):
+                    # For training, if our document chunk does not contain an annotation
+                    # we throw it out, since there is nothing to predict.
+                    doc_start = doc_span.start
+                    doc_end = doc_span.start + doc_span.length - 1
+                    if (example.start_position < doc_start or
+                            example.end_position < doc_start or
+                            example.start_position > doc_end or example.end_position > doc_end): #滑块中不包含答案
+                        continue
+                    # doc_offset = len(query_tokens) + 2 因为是删掉了query所以没有offset
+                    start_position = tok_start_position - doc_start 
+                    end_position = tok_end_position - doc_start
+        
+                docs_p_input_ids.append(p_input_ids)
+                docs_p_input_masks.append(p_input_mask)
+                docs_p_segment_ids.append(p_segment_ids)
+                docs_p_to_ori_map.append(token_to_orig_map)
+                docs_p_tokens.append(tokens)
+                docs_start_position.append(start_position)
+                docs_end_position.append(end_position)
+
+                break # 如果是一个或多个滑块且是无答案的文档直接取第一个，如果是一个或多个滑块包含答案的文档，直接取有答案的第一个滑块
+        features.append(
+            InputFeatures(
+                unique_id=unique_id,
+                example_index=example_index,
+                doc_span_index=doc_span_index, #应该无用了，start在上面减掉了offset
+                tokens=docs_p_tokens,
+                token_to_orig_map=docs_p_to_ori_map,
+                token_is_max_context=token_is_max_context, # 目前没看懂有没有用
+                q_input_ids=q_input_ids,
+                q_input_mask=q_input_mask,
+                q_segment_ids=q_segment_ids,
+                p_input_ids=docs_p_input_ids,
+                p_input_mask=docs_p_input_masks,
+                p_segment_ids=docs_p_segment_ids,
+                start_position=docs_start_position,
+                end_position=docs_end_position))
+        unique_id += 1
 
     return features
 
