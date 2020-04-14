@@ -45,6 +45,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             nn.Linear(config.hidden_size,1),
             nn.Sigmoid()
         )
+        self.w3_a = nn.Linear(config.hidden_size * 3, 1)
         # self.w2_c = nn.Linear(config.hidden_size * 2,config.hidden_size)
         # self.w1_c = nn.Linear(config.hidden_size, 1)
         # =======zhq
@@ -52,14 +53,13 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         self.init_weights()
     
     def forward(self, q_input_ids,  p_input_ids,q_attention_mask=None, q_token_type_ids=None, q_position_ids=None, q_head_mask=None,
-                p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,
+                p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,right_num = None,
                 start_positions=None, end_positions=None):
         device = p_input_ids.device
         """transpose batch and docs"""
         p_input_ids = p_input_ids.transpose(0,1)
         p_attention_mask = p_attention_mask.transpose(0,1)
         p_token_type_ids = p_token_type_ids.transpose(0,1)
-        
         """Embedding"""
         q_outputs = self.bert(q_input_ids,
                             attention_mask=q_attention_mask,
@@ -69,15 +69,22 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         q_embedding = q_outputs[0] # size(batch,seq,hidden)
         q_embedding = q_embedding.transpose(0,1)
         final_loss = 0
-        R_A = []
+        # R_A是 docs batch hidden
+        Doc_ra = Variable(torch.zeros(p_input_ids.size(0),p_input_ids.size(1),q_embedding.size(-1))).to(device) # q_embedding是hidde_size
+        if(start_positions is not None and end_positions is not None):
+            start_positions = start_positions.transpose(0,1)
+            end_positions = end_positions.transpose(0,1)
         for doc_index, (each_doc_p_input_id,each_doc_p_attention_mask,each_doc_p_token_type) in enumerate(zip(p_input_ids,p_attention_mask, p_token_type_ids)):
+            # if(doc_index =)
             p_outputs = self.bert(each_doc_p_input_id,
                                 attention_mask=each_doc_p_attention_mask,
                                 token_type_ids=each_doc_p_token_type,
                                 position_ids=p_position_ids, 
                                 head_mask=p_head_mask)
-        
             p_embedding = p_outputs[0]
+            p_embedding.require_grad = False
+            # for t in p_embedding:
+            #     t.require_grad = False
             p_embedding = p_embedding.transpose(0,1)
             """Feature_Extraction"""
             if(device == "cpu"):
@@ -155,9 +162,9 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             p_embedding = p_embedding.transpose(0,1)
             for word_num, (each_poss,each_p_embedding)  in enumerate(zip(verify_poss,p_embedding)):
                 r_A[word_num] = torch.div(each_poss.mm(each_p_embedding),p_embedding.size(1))
-            R_A.append(r_A)
-            """"针对包含答案的文章，计算Loss"""
-            if start_positions[doc_index] != 0  and end_positions[doc_index] != 0:
+            Doc_ra[doc_index] = r_A
+            """"针对包含答案的文章，计算Loss""" # not None 是为了判断是否是Train
+            if start_positions is not None and end_positions is not None:
                 # If we are on multi-GPU, split add a dimension
                 """part 1 loss"""
                 if len(start_positions[doc_index].size()) > 1:
@@ -169,7 +176,6 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                 start_positions[doc_index].clamp_(0, ignored_index)
                 end_positions[doc_index].clamp_(0, ignored_index)
                 loss_func = nn.NLLLoss(ignore_index= ignored_index)
-                # loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
                 start_loss = loss_func(alpha_1, start_positions[doc_index])
                 end_loss = loss_func(alpha_2, end_positions[doc_index])
                 ans_total_loss = (start_loss + end_loss) / 2  # 这个loss算的没毛病，pointer标准的loss
@@ -177,8 +183,8 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                 # neg_poss = torch.ones(poss.size()).to(device).add(poss * -1)  # 1 - poss
                 answer_span = torch.zeros(poss.size(0),poss.size(1))
                 # no_answer_span = torch.ones(poss.size(0),poss.size(1))
-                for (each_answer_span, start_position,end_position) in zip(answer_span,start_positions,end_positions):
-                    for i in range(end_position-start_position):
+                for (each_answer_span, start_position,end_position) in zip(answer_span,start_positions[doc_index],end_positions[doc_index]):
+                    for i in range(end_position - start_position):
                         each_answer_span[i+start_position] = 1
                         # each_no_answer_span[i+start_position] = 0
                 content_loss = 0.0 
@@ -187,10 +193,21 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                         content_loss += each_word_ans * torch.log(each_word_poss) + (1-each_word_ans) * torch.log(1-each_word_poss)
                 content_loss = -1 * content_loss/(poss.size(0)*poss.size(1))
                 final_loss += ans_total_loss + 0.5 * content_loss
-        s = Variable(torch.zeros(p_input_ids.size(0),p_input_ids.size(0)))
-        for i, r_1 in enumerate(R_A):
-            for j, r_2 in enumerate(R_A):
-                s[i][j] = r_1.mm(r_2)
+            torch.cuda.empty_cache()
+        s = Variable(torch.zeros(p_input_ids.size(1), p_input_ids.size(0),p_input_ids.size(0))).to(device) # batch docs docs 因为下面好乘
+        for i , each_ra in enumerate(Doc_ra.transpose(0,1)):
+            # temp_test = torch.ones(5,768)
+            # each_s = temp_test.mm(temp_test.T)
+            s[i]= each_ra.mm(each_ra.T)  # 应该是 batch docs docs
+            for j in range(s[i].size(1)):
+                s[i][j][j] = 0
+        s = torch.softmax(s,-1)
+        verify_rpt = Variable(torch.zeros(p_input_ids.size(1),p_input_ids.size(0),Doc_ra.size(-1))).to(device) # batch docs hidden
+        for i, (each_s,each_ra) in enumerate(zip(s,Doc_ra.transpose(0,1))):
+            verify_rpt[i] = each_s.mm(each_ra)
+        p = Variable(torch.zeros(p_input_ids.size(0),p_input_ids.size(1))).to(device)
+        p = torch.softmax(self.w3_a(torch.cat((Doc_ra.transpose(0,1),verify_rpt,verify_rpt.mul(Doc_ra.transpose(0,1))),-1)),0)
+        print(p)
         # return (ans_total_loss + 0.5 * content_loss)
             # outputs = (total_loss,) + (alpha_1,alpha_2)
       

@@ -71,8 +71,10 @@ class InputFeatures(object):
                  p_input_ids,
                  p_input_mask,
                  p_segment_ids,
+                 right_num=None,
                  start_position=None,
                  end_position=None):
+        self.right_num = right_num
         self.unique_id = unique_id
         self.example_index = example_index
         self.doc_span_index = doc_span_index
@@ -331,6 +333,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 break # 如果是一个或多个滑块且是无答案的文档直接取第一个，如果是一个或多个滑块包含答案的文档，直接取有答案的第一个滑块
         features.append(
             InputFeatures(
+                right_num = example.right_num,
                 unique_id=unique_id,
                 example_index=example_index,
                 doc_span_index=doc_span_index, #应该无用了，start在上面减掉了offset

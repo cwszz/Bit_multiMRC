@@ -23,7 +23,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '2,3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '3'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -111,7 +111,8 @@ def train(args, train_dataset, model, tokenizer):
                       'p_attention_mask':  batch[4], 
                       'p_token_type_ids':  batch[5],  
                       'start_positions':   batch[6], 
-                      'end_positions':     batch[7]}
+                      'end_positions':     batch[7],
+                      'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
@@ -310,6 +311,7 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
     all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
     all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
     all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
+    all_right_num = torch.tensor([f.right_num for f in features], dtype=torch.int)
     if evaluate:
         all_example_index = torch.arange(all_p_input_ids.size(0), dtype=torch.long)
         dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,all_p_input_ids, 
@@ -319,7 +321,7 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
         all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
         dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,
                                 all_p_input_ids, all_p_input_mask, all_p_segment_ids,
-                                all_start_positions, all_end_positions)
+                                all_start_positions, all_end_positions,all_right_num)
         
     if output_examples:
         return dataset, examples, features
