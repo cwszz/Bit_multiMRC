@@ -532,6 +532,7 @@ def main():
                         doc_length = len(my_doc_tokens)
                         preprocessed_sample['documents'].append({'doc_tokens':my_doc_tokens,'doc_length':doc_length})
                     preprocessed_sample['question'] = sample['question']
+                    preprocessed_sample['question_tokens'] = sample['segmented_question']
                     preprocessed_sample['question_id'] = sample['question_id']
                     # preprocessed_sample['doc_tokens'] = [word for para in sample['passage_tokens'] for word in para]
                     # preprocessed_sample['doc_tokens_len'] = len(preprocessed_sample['doc_tokens'])

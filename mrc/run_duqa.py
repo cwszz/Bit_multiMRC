@@ -23,7 +23,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
