@@ -424,6 +424,8 @@ def main():
     """
     "do_clean": if do clean, the scripts will remove the example whose fakeanswer not match answer span
     """
+    remain_doc = 3
+    doc_num = 5
     parser = argparse.ArgumentParser()
 
     ## Required parameters
@@ -466,7 +468,7 @@ def main():
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
             total_num  += 1
-            if total_num == 4000:
+            if total_num == 1000:
                 break
             if args.output:
                 preprocessed_sample = {}
@@ -525,15 +527,36 @@ def main():
 
             if args.output:
                 try:
+                    passages = [0,1]
+                    preprocessed_sample['ori_right_doc'] = answer_doc
                     preprocessed_sample['right_doc'] = answer_doc
                     preprocessed_sample['documents'] = []
+                    if(answer_doc == 0):
+                        passages = [1,3]
+                        answer_doc = 0
+                    elif(answer_doc == 1):
+                        passages = [2,3]
+                        answer_doc = 1
+                    elif(answer_doc == 2):
+                        passages = [0,4]
+                        answer_doc = 1
+                    elif(answer_doc == 3):
+                        answer_doc = 2
+                        passages = [0,4]
+                    else:
+                        passages = [0,1]
+                        answer_doc = 2
                     for i in range(5):
+                        if(i in passages):
+                            continue
                         my_doc_tokens = [word for para in [sample['documents'][i]['segmented_paragraphs'][0]] for word in para]
                         doc_length = len(my_doc_tokens)
                         preprocessed_sample['documents'].append({'doc_tokens':my_doc_tokens,'doc_length':doc_length})
+                    preprocessed_sample['right_doc'] = answer_doc
                     preprocessed_sample['question'] = sample['question']
                     preprocessed_sample['question_tokens'] = sample['segmented_question']
                     preprocessed_sample['question_id'] = sample['question_id']
+                    
                     # preprocessed_sample['doc_tokens'] = [word for para in sample['passage_tokens'] for word in para]
                     # preprocessed_sample['doc_tokens_len'] = len(preprocessed_sample['doc_tokens'])
                     if args.mode == "train":

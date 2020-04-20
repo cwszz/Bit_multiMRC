@@ -10,6 +10,7 @@ import math
 from io import open
 from tqdm import tqdm
 
+from transformers import BertTokenizer
 from transformers.tokenization_bert import BasicTokenizer, whitespace_tokenize
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
                                  doc_stride, max_query_length, is_training):
     """Loads a data file into a list of `InputBatch`s."""
-
+    
     unique_id = 1000000000
 
     features = []
@@ -333,7 +334,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 docs_end_position.append(end_position)
 
                 break # 如果是一个或多个滑块且是无答案的文档直接取第一个，如果是一个或多个滑块包含答案的文档，直接取有答案的第一个滑块
-        if(len(docs_p_input_ids) != 5 and is_training):  #这里有问题，会出现不是5个的情况
+        if(len(docs_p_input_ids) != 3 and is_training):  #这里有问题，会出现不是5个的情况
             continue
         features.append(
             InputFeatures(
