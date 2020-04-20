@@ -17,3 +17,6 @@ python preprocess/preprocess_utils.py --data_file=data/dev_preprocessed/devset/z
                                     --maxp=3000 \
                                     --topn=30 \
                                     --do_clean
+
+python preprocess/preprocess_utils.py --data_file=data/preprocessed/trainset/search.train.json --output_file=data/preprocessed/my_test/true_train.json --eval --output --check --mode=train --maxp=3000 --topn=30 --do_clean
+python preprocess/preprocess_utils.py --data_file=data/preprocessed/trainset/zhidao.train.json --output_file=data/preprocessed/my_test/true_train_zhidao.json --eval --output --check --mode=train --maxp=3000 --topn=30 --do_clean

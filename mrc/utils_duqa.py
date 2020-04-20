@@ -223,6 +223,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
         docs_p_tokens = []
         docs_p_segment_ids = [] #检查对应性
         for j in range(len(example.documents)):
+            # if(unique_id == 1000000331 and j ==1):
+            #     j = 1
             tok_to_orig_index = []
             orig_to_tok_index = []
             all_doc_tokens = []
@@ -314,14 +316,14 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                     # we throw it out, since there is nothing to predict.
                     doc_start = doc_span.start
                     doc_end = doc_span.start + doc_span.length - 1
-                    if (example.start_position < doc_start or
-                            example.end_position < doc_start or
-                            example.start_position > doc_end or example.end_position > doc_end): #滑块中不包含答案
+                    if (tok_start_position < doc_start or
+                            tok_end_position < doc_start or
+                            tok_start_position > doc_end or tok_end_position > doc_end): #滑块中不包含答案
                         continue
                     # doc_offset = len(query_tokens) + 2 因为是删掉了query所以没有offset
                     start_position = tok_start_position - doc_start 
                     end_position = tok_end_position - doc_start
-        
+                    # answer = 
                 docs_p_input_ids.append(p_input_ids)
                 docs_p_input_masks.append(p_input_mask)
                 docs_p_segment_ids.append(p_segment_ids)
@@ -331,6 +333,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 docs_end_position.append(end_position)
 
                 break # 如果是一个或多个滑块且是无答案的文档直接取第一个，如果是一个或多个滑块包含答案的文档，直接取有答案的第一个滑块
+        if(len(docs_p_input_ids) != 5 and is_training):  #这里有问题，会出现不是5个的情况
+            continue
         features.append(
             InputFeatures(
                 right_num = example.right_num,

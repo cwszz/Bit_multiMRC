@@ -23,7 +23,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+os.environ["CUDA_VISIBLE_DEVICES"] = '3'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -132,7 +132,7 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()  # 更新模型
-                scheduler.step()  # 更新学习绿
+                scheduler.step()  # 更新学习率
                 model.zero_grad() # 模型的梯度置0
                 global_step += 1  # 加一步
 
@@ -308,6 +308,9 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
     all_q_input_ids = torch.tensor([f.q_input_ids for f in features], dtype=torch.long)
     all_q_input_mask = torch.tensor([f.q_input_mask for f in features], dtype=torch.long)
     all_q_segment_ids = torch.tensor([f.q_segment_ids for f in features], dtype=torch.long)
+    # for f in features:
+    #     if(len(f.p_input_ids)!=5):
+    #         print(f)
     all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
     all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
     all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)

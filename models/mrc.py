@@ -42,7 +42,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         """Answer_content predict"""
         self.content_predict = nn.Sequential(
             nn.Linear(self.temp_hidden*2,self.temp_hidden),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),
             nn.Linear(self.temp_hidden,1),
             nn.Sigmoid()
         )
@@ -70,22 +70,20 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         q_embedding = q_outputs[0] # size(batch,seq,hidden)
         q_embedding = q_embedding.transpose(0,1)
         # R_A是 docs batch hidden
-        final_loss = Variable(torch.zeros(q_embedding.size(1),1))
-        Doc_ra = Variable(torch.zeros(p_input_ids.size(0),p_input_ids.size(1),q_embedding.size(-1))).to(device) # q_embedding是hidde_size
+        # test_loss = torch.zeros(2,1).to(device)
+        final_loss = torch.zeros(q_embedding.size(1),1).to(device)
+        Doc_ra = torch.zeros(p_input_ids.size(0),p_input_ids.size(1),q_embedding.size(-1)).to(device) # q_embedding是hidde_size
         if(start_positions is not None and end_positions is not None):
             start_positions = start_positions.transpose(0,1)
             end_positions = end_positions.transpose(0,1)
+
         for doc_index, (each_doc_p_input_id,each_doc_p_attention_mask,each_doc_p_token_type) in enumerate(zip(p_input_ids,p_attention_mask, p_token_type_ids)):
-            # if(doc_index =)
             p_outputs = self.bert(each_doc_p_input_id,
                                 attention_mask=each_doc_p_attention_mask,
                                 token_type_ids=each_doc_p_token_type,
                                 position_ids=p_position_ids, 
                                 head_mask=p_head_mask)
             p_embedding = p_outputs[0]
-            p_embedding.require_grad = False
-            # for t in p_embedding:
-            #     t.require_grad = False
             p_embedding = p_embedding.transpose(0,1)
             """Feature_Extraction"""
             if(device == "cpu"):
@@ -93,11 +91,15 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                 c_0_q = Variable(torch.zeros(self.lstmlayers*2, q_input_ids.size(0), self.temp_hidden))
                 h_0_p = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden)) # 乘2因为是双向 p_input_ids 为 docs batchs seq hidden
                 c_0_p = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden))
+                h_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden)) # 乘2因为是双向
+                c_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden))
             else:
                 h_0_q = Variable(torch.zeros(self.lstmlayers*2, q_input_ids.size(0), self.temp_hidden)).to(device) # 乘2因为是双向
                 c_0_q = Variable(torch.zeros(self.lstmlayers*2, q_input_ids.size(0), self.temp_hidden)).to(device)
                 h_0_p = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden)).to(device) # 乘2因为是双向
                 c_0_p = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden)).to(device)
+                h_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden)).to(device) # 乘2因为是双向
+                c_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_input_ids.size(1), self.temp_hidden)).to(device)
             p_features,(p_final_hidden_state, p_final_cell_state) = self.lstm(p_embedding,(h_0_p,c_0_p)) # seq_length batch hidden
             q_features,(q_final_hidden_state, q_final_cell_state) = self.lstm(q_embedding,(h_0_q,c_0_q))
             """Bi-Attention"""
@@ -142,24 +144,24 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                 ,2)))).squeeze(2) # 把h_0_a 扩充成512个词的，在hidden层拼接
             # g_1 是 公式（5）
             alpha_1 = torch.softmax(g_1,1).unsqueeze(1) #(6)
-            c_1 = Variable(torch.zeros(final_p_features.size(0),1, final_p_features.size(2))).to(device) #hiddensize 和h_0_a一致
+            c_1 = torch.zeros(final_p_features.size(0),1, final_p_features.size(2)).to(device) #hiddensize 和h_0_a一致
             for i, (each_alpha_1,each_p_feature) in enumerate(zip(alpha_1,final_p_features)):
                 c_1[i] = each_alpha_1.mm(each_p_feature)
-            h_0_a ,(p_final_hidden_state, p_final_cell_state)= self.lstm_boundary(c_1,(h_0_p,c_0_p))
+            h_0_a ,(p_final_hidden_state, p_final_cell_state)= self.lstm_boundary(c_1,(h_0_p_bound,c_0_p_bound))
             """第二次计算END，alpha2就是结束概率"""
             g_2 = self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
                 ,2)))).squeeze(2) # 把h_0_a 扩充成512个词的，在hidden层拼接
-            alpha_2 = torch.softmax(g_2,1)
+            alpha_2 = log(torch.softmax(g_2,1))
             alpha_1 = alpha_1.squeeze(1)
             alpha_2 = torch.log(alpha_2)
             alpha_1 = torch.log(alpha_1)
-            ans_total_loss = 0
+            ans_total_loss = torch.zeros(q_embedding.size(1)).to(device)
             """计算ground_truth的概率"""
             # poss = torch.sigmoid(self.w1_c(torch.relu(self.w2_c(final_p_features))))
             poss = self.content_predict(final_p_features)
             """Verify ready_Part"""
             verify_poss = poss.transpose(1,2)
-            r_A = Variable(torch.zeros(final_p_features.size(0),p_embedding.size(-1)))
+            r_A = torch.zeros(final_p_features.size(0),p_embedding.size(-1))
             p_embedding = p_embedding.transpose(0,1)
             for word_num, (each_poss,each_p_embedding)  in enumerate(zip(verify_poss,p_embedding)):
                 r_A[word_num] = torch.div(each_poss.mm(each_p_embedding),p_embedding.size(1))
@@ -177,13 +179,15 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                         #     end_positions[doc_index] = end_positions[doc_index].squeeze(-1)
                         # sometimes the start/end positions are outside our model inputs, we ignore these terms
                         ignored_index = alpha_1.size(1)
-                        start_positions[doc_index][t].clamp_(0, ignored_index) #控制范围
-                        end_positions[doc_index][t].clamp_(0, ignored_index) 
+                        
+                        temp_start = torch.clamp(start_positions[doc_index][t],0, ignored_index) #控制范围
+                        temp_end = torch.clamp(end_positions[doc_index][t],0, ignored_index) 
                         loss_func = nn.NLLLoss(ignore_index= ignored_index)
-                        #  start_positions[doc_index][t].reshape(1) 
-                        start_loss = loss_func(alpha_1[t].unsqueeze(0),start_positions[doc_index][t].reshape(1))
-                        end_loss = loss_func(alpha_2[t].unsqueeze(0), end_positions[doc_index][t].reshape(1))
-                        ans_total_loss = (start_loss + end_loss) / 2  # 这个loss算的没毛病，pointer标准的loss
+                      
+                        # start_loss = loss_func(alpha_1[t].unsqueeze(0),start_positions[doc_index][t].reshape(1))
+                        # end_loss = loss_func(alpha_2[t].unsqueeze(0), end_positions[doc_index][t].reshape(1))
+                        ans_total_loss[t] = (loss_func(alpha_1[t].unsqueeze(0),temp_start.reshape(1))
+                                    + loss_func(alpha_2[t].unsqueeze(0), temp_end.reshape(1)) )/2  # 这个loss算的没毛病，pointer标准的loss  
                         """part 2 loss"""
                         # neg_poss = torch.ones(poss.size()).to(device).add(poss * -1)  # 1 - poss
                         answer_span = torch.zeros(poss.size(0),poss.size(1)) # batch * words
@@ -192,29 +196,30 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                             for i in range(end_position - start_position):
                                 each_answer_span[i+start_position] = 1
                                 # each_no_answer_span[i+start_position] = 0
-                        content_loss = 0.0 
+                        content_loss = torch.zeros(1).to(device)
                         for (each_batch_answer_span,each_batch_poss) in zip(answer_span,poss):
                             for (each_word_ans,each_word_poss) in zip(each_batch_answer_span,each_batch_poss):
-                                content_loss += each_word_ans * torch.log(each_word_poss) + (1-each_word_ans) * torch.log(1-each_word_poss)
-                        content_loss = -1 * content_loss/(poss.size(0)*poss.size(1))
-                    final_loss[t] += ans_total_loss + 0.5 * content_loss
-            torch.cuda.empty_cache()
-        s = Variable(torch.zeros(p_input_ids.size(1), p_input_ids.size(0),p_input_ids.size(0))).to(device) # batch docs docs 因为下面好乘
+                                content_loss[0] = content_loss[0]+ each_word_ans * torch.log(each_word_poss) + (1-each_word_ans) * torch.log(1-each_word_poss)
+                        content_loss[0] = -1 * content_loss[0]/(poss.size(0)*poss.size(1))+ans_total_loss[0]
+                        # return content_loss
+                        final_loss[t] =  ans_total_loss[0] + 0.5 * content_loss[0] 
+            # torch.cuda.empty_cache() 
+        s = torch.zeros(p_input_ids.size(1), p_input_ids.size(0),p_input_ids.size(0)).to(device) # batch docs docs 因为下面好乘
         for i , each_ra in enumerate(Doc_ra.transpose(0,1)):
             s[i]= each_ra.mm(each_ra.T)  # 应该是 batch docs docs
             for j in range(s[i].size(1)):
                 s[i][j][j] = 0
         s = torch.softmax(s,-1)
-        verify_rpt = Variable(torch.zeros(p_input_ids.size(1),p_input_ids.size(0),Doc_ra.size(-1))).to(device) # batch docs hidden
+        verify_rpt = torch.zeros(p_input_ids.size(1),p_input_ids.size(0),Doc_ra.size(-1)).to(device) # batch docs hidden
         for i, (each_s,each_ra) in enumerate(zip(s,Doc_ra.transpose(0,1))):
             verify_rpt[i] = each_s.mm(each_ra)
-        p = Variable(torch.zeros(p_input_ids.size(0),p_input_ids.size(1))).to(device)
+        p = torch.zeros(p_input_ids.size(0),p_input_ids.size(1)).to(device)
         p = torch.softmax(self.w3_a(torch.cat((Doc_ra.transpose(0,1),verify_rpt,verify_rpt.mul(Doc_ra.transpose(0,1))),-1)),1)
         p = torch.log(p).squeeze(-1)
         if  start_positions is not None and end_positions is not None:
-            sum_loss = final_loss.transpose(0,1).mm(torch.ones(p.size(0),1))
+            sum_loss = final_loss.transpose(0,1).mm(torch.ones(p.size(0),1).to(device))
             loss_func = nn.NLLLoss(ignore_index= 512)
-            sum_loss += 0.5 * loss_func(p,right_num.long())
+            sum_loss = sum_loss + 0.5 * loss_func(p,right_num.long())
             return sum_loss
         else: # 预测时：
             return p
