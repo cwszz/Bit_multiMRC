@@ -151,7 +151,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             """第二次计算END，alpha2就是结束概率"""
             g_2 = self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
                 ,2)))).squeeze(2) # 把h_0_a 扩充成512个词的，在hidden层拼接
-            alpha_2 = log(torch.softmax(g_2,1))
+            alpha_2 = torch.softmax(g_2,1)
             alpha_1 = alpha_1.squeeze(1)
             alpha_2 = torch.log(alpha_2)
             alpha_1 = torch.log(alpha_1)
