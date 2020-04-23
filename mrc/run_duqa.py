@@ -24,7 +24,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -116,7 +116,9 @@ def train(args, train_dataset, model, tokenizer):
                       'end_positions':     batch[7],
                       'right_num':         batch[8]}
             outputs = model(**inputs)
-            loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
+            loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
+            with open('new_loss_debug_startonly.txt','a+',encoding='utf-8') as f:       
+                f.write(str(loss)+'\n') 
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
             if args.n_gpu > 1:
                 loss = loss.mean() # mean() to average on multi-gpu parallel (not distributed) training
@@ -335,7 +337,6 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
 
 def main():
     parser = argparse.ArgumentParser()
-
     ## Required parameters
     parser.add_argument("--train_file", default='./test.txt', type=str, required=True,
                         help="Duqa json for training. E.g., train-v1.1.json")
@@ -376,7 +377,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=5e-5, type=float,
+    parser.add_argument("--learning_rate", default=5e-4, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")

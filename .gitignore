@@ -4,3 +4,4 @@ data/preprocessed
 checkpoints
 *.log
 runs
+*.txt

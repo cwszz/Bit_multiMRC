@@ -468,7 +468,7 @@ def main():
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
             total_num  += 1
-            if total_num == 1000:
+            if total_num == 10:
                 break
             if args.output:
                 preprocessed_sample = {}
