@@ -200,7 +200,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
     def forward(self, q_input_ids,  p_input_ids,q_attention_mask=None, q_token_type_ids=None, q_position_ids=None, q_head_mask=None,
                 p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,right_num = None,
                 start_positions=None, end_positions=None): 
-        device = p_input_ids.device
+        # device = p_input_ids.device
         """transpose batch and docs"""
         p_input_ids = p_input_ids.transpose(0,1)
         p_attention_mask = p_attention_mask.transpose(0,1)
@@ -234,7 +234,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             content_loss,right_index = self.part_two_loss(start_positions,end_positions,poss,right_num)
             verify_loss = self.verify(represetation,right_index)
             return (start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss    
-         """Embedding"""
+        #  """Embedding"""
         # q_outputs = self.bert(q_input_ids,
         #                     attention_mask=q_attention_mask,
         #                     token_type_ids=q_token_type_ids,
