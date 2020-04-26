@@ -468,8 +468,6 @@ def main():
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
             total_num  += 1
-            if total_num == 10000:
-                break
             if args.output:
                 preprocessed_sample = {}
             sample = json.loads(line)

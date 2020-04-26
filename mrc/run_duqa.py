@@ -24,7 +24,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -79,6 +79,7 @@ def train(args, train_dataset, model, tokenizer):
     # multi-gpu training (should be after apex fp16 initialization)
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
+        model.to(args.device)
 
     # Distributed training (should be after apex fp16 initialization)
     if args.local_rank != -1:
@@ -117,7 +118,7 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('true_train_debug_8.txt','a+',encoding='utf-8') as f:       
+            with open('true_train_op.txt','a+',encoding='utf-8') as f:       
                 f.write(str(loss)+'------'+str(epoch_idx)+'\n') 
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
             if args.n_gpu > 1:
@@ -462,8 +463,8 @@ def main():
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
+    # model = torch.nn.DataParallel(model)
     model.to(args.device)
-
     logger.info("Training/evaluation parameters %s", args)
 
     # Training

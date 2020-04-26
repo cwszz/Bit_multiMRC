@@ -29,6 +29,7 @@ class Feature_Extraction(BertPreTrainedModel):
         super(Feature_Extraction,self).__init__(config)
         self.temp_hidden = 230
         self.bert = BertModel(config)
+        self.bert.train
         self.lstmlayers = 1
         self.config = config
         self.lstm = nn.LSTM(input_size=config.hidden_size,hidden_size=self.temp_hidden,
@@ -44,8 +45,64 @@ class Feature_Extraction(BertPreTrainedModel):
                                 token_type_ids=token_type_ids,
                                 position_ids=position_ids, 
                                 head_mask=head_mask)
+        self.lstm.flatten_parameters()
         features = self.lstm(input_embedding[0].transpose(0,1),(h_0_q,c_0_q))[0]
         return features,input_embedding[0]
+
+
+class New_ptr_net(nn.Module):
+    def __init__(self):
+        super(New_ptr_net,self).__init__()
+        self.temp_hidden = 230
+        self.lstmlayers = 1
+        self.score = nn.Linear(3 * 64 * self.lstmlayers* 2 * 3 * self.temp_hidden, 448 * 64)
+        self.lstm_m = nn.LSTM(input_size=self.temp_hidden*8, hidden_size=self.temp_hidden ,num_layers=1,
+            bidirectional=True,batch_first=True)
+        self.w2_a = nn.Linear(self.temp_hidden * 2 * 2,self.temp_hidden *2)
+        self.w1_a = nn.Linear(self.temp_hidden * 2, 1)
+        self.lstm_boundary = nn.LSTM(input_size= self.temp_hidden* 2, hidden_size=self.temp_hidden,num_layers=1,
+            bidirectional=True,batch_first= True) 
+        # self.init_weights()
+    
+    def forward(self,p_features,q_features):
+        device = p_features.device
+        h_0_p = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device) # 乘2因为是双向
+        c_0_p = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device)
+        h_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device) # 乘2因为是双向
+        c_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device)
+        self.lstm_boundary.flatten_parameters()
+        self.lstm_m.flatten_parameters()
+        for (p_features_batch,q_features_batch) in zip(p_features.transpose(0,1).transpose(1,2),q_features.transpose(0,1).transpose(1,2)):
+            temp_u = p_features_batch.unsqueeze(-1).bmm(q_features_batch.unsqueeze(1))
+        for t,p_word in enumerate(p_features):
+            for j,q_word in enumerate(q_features):
+                u[t][j] = q_word.mul(p_word)
+                # u[t][j] = self.score(torch.cat((p_word,q_word,q_word.mul(p_word)),1)).squeeze(1) 
+        q2c_attention = F.softmax(u,1).transpose(0,2).transpose(1,2) # dim=1 表示行加和为1
+                # U_t = 对j叠加，a_(t,j)*U_j 所以j也就是query_length加和为1
+        c2q_attention = torch.max(u,1)[0].transpose(0,1) # dim = 0 表示从512个第0维中找出代表512个最大的
+        new_p_features_u = q2c_attention.bmm(q_features.transpose(0,1))
+            # 获得q2c的加权特征  可能可以简化一下
+        p_features = p_features.transpose(0,1)
+        new_p_features_h = torch.zeros(p_features.size()).to(device)
+        for i, (each_c2q,p_feature) in enumerate(zip(c2q_attention,p_features)):
+            for j,(c2q_weight,p_word_feature) in enumerate(zip(each_c2q,p_feature)):
+                    new_p_features_h[i][j] = c2q_weight * p_word_feature
+        final_p_features = torch.cat((p_features,new_p_features_h,p_features.mul(new_p_features_u),p_features.mul(new_p_features_h)),-1)  
+        final_p_features = self.lstm_m(final_p_features,(h_0_p,c_0_p))[0]
+        h_0_a = Variable(torch.zeros(final_p_features.size(0),1,final_p_features.size(2))).to(device) # 这个不知道人家咋初始化的
+        alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
+            ,2)))).squeeze(2),1).unsqueeze(1) #(6)
+        c_1 = alpha_1.bmm(final_p_features)
+        h_0_a = self.lstm_boundary(c_1,(h_0_p_bound,c_0_p_bound))[0]
+        """第二次计算END，alpha2就是结束概率"""
+        alpha_2 = torch.log(F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
+            ,2)))).squeeze(2),1))
+        # alpha_2 = torch.log(alpha_2)
+        alpha_1 =  torch.log(alpha_1.squeeze(1))
+
+        return final_p_features, alpha_1, alpha_2
+
 
 class Ptr_net(nn.Module):
     def __init__(self):
@@ -67,10 +124,26 @@ class Ptr_net(nn.Module):
         c_0_p = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device)
         h_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device) # 乘2因为是双向
         c_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device)
-        u = torch.zeros(p_features.size(0),q_features.size(0),q_features.size(1)).to(device)
-        for t,p_word in enumerate(p_features):
-            for j,q_word in enumerate(q_features):
-                u[t][j] = self.score(torch.cat((p_word,q_word,q_word.mul(p_word)),1)).squeeze(1) 
+        self.lstm_boundary.flatten_parameters()
+        self.lstm_m.flatten_parameters()
+        # u = torch.zeros(p_features.size(0),q_features.size(0),q_features.size(1)).to(device)
+        u = torch.zeros(q_features.size(1),p_features.size(0),q_features.size(0)).to(device)
+        # for t,p_word in enumerate(p_features):
+        #     for j,q_word in enumerate(q_features):
+        #         temp_u[t][j] = q_word.mul(p_word)
+        # temp_u = temp_u.transpose(0,2).transpose(1,2)
+        for i,(p_features_batch,q_features_batch) in enumerate(zip(p_features.transpose(0,1).transpose(1,2),q_features.transpose(0,1).transpose(1,2))):
+            # sec_u = p_features_batch.unsqueeze(-1).bmm(q_features_batch.unsqueeze(1)).transpose(0,1).transpose(1,2)
+            # ss = p_features_batch.transpose(0,1).unsqueeze(1).repeat(1,q_features.size(0),1)
+            # cc = q_features_batch.transpose(0,1).unsqueeze(0).repeat(p_features.size(0),1,1)
+            cat_feature = torch.cat((p_features_batch.transpose(0,1).unsqueeze(1).repeat(1,q_features.size(0),1),
+                                    q_features_batch.transpose(0,1).unsqueeze(0).repeat(p_features.size(0),1,1),
+                                    p_features_batch.unsqueeze(-1).bmm(q_features_batch.unsqueeze(1)).transpose(0,1).transpose(1,2)),-1)
+            u[i] = self.score(cat_feature.reshape(cat_feature.size(0)*cat_feature.size(1),-1)).squeeze(-1).reshape(p_features.size(0),q_features.size(0))
+        # for t,p_word in enumerate(p_features):
+        #     for j,q_word in enumerate(q_features):
+        #         u[t][j] = self.score(torch.cat((p_word,q_word,q_word.mul(p_word)),1)).squeeze(1) 
+        u = u.transpose(0,1).transpose(1,2)
         q2c_attention = F.softmax(u,1).transpose(0,2).transpose(1,2) # dim=1 表示行加和为1
                 # U_t = 对j叠加，a_(t,j)*U_j 所以j也就是query_length加和为1
         c2q_attention = torch.max(u,1)[0].transpose(0,1) # dim = 0 表示从512个第0维中找出代表512个最大的
@@ -206,12 +279,12 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         p_attention_mask = p_attention_mask.transpose(0,1)
         p_token_type_ids = p_token_type_ids.transpose(0,1)
 
-
-       
         q_features,q_embedding = self.bert2(q_input_ids,attention_mask = q_attention_mask,token_type_ids=q_token_type_ids,position_ids=q_position_ids, head_mask=q_head_mask)
         p0_features,p0_embedding= self.bert2(p_input_ids[0],attention_mask = p_attention_mask[0],token_type_ids=p_token_type_ids[0],position_ids=p_position_ids,head_mask=p_head_mask)
         p1_features,p1_embedding = self.bert2(p_input_ids[1],attention_mask = p_attention_mask[1],token_type_ids=p_token_type_ids[1],position_ids=p_position_ids,head_mask=p_head_mask)
         p2_features,p2_embedding = self.bert2(p_input_ids[2],attention_mask = p_attention_mask[2],token_type_ids=p_token_type_ids[2],position_ids=p_position_ids,head_mask=p_head_mask)
+        # p_features = torch.cat((p0_features,p1_features,p2_features),1)
+        # final_f,p_alpha1,p_alpha2 = self.ptr(p_features,q_features)
         final_p0_features,p0_alpha1,p0_alpha2 = self.ptr(p0_features,q_features)
         final_p1_features,p1_alpha1,p1_alpha2 = self.ptr(p1_features,q_features)
         final_p2_features,p2_alpha1,p2_alpha2 = self.ptr(p2_features,q_features)
