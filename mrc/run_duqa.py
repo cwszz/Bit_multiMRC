@@ -24,7 +24,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '1,3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2,3'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -52,7 +52,7 @@ def train(args, train_dataset, model, tokenizer):
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=False)
 
     if args.max_steps > 0:
         t_total = args.max_steps
@@ -118,7 +118,7 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('true_train_final.txt','a+',encoding='utf-8') as f:       
+            with open('Final_train_debug.txt','a+',encoding='utf-8') as f:       
                 f.write(str(loss)+'------'+str(epoch_idx)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
@@ -380,7 +380,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=3e-5, type=float,
+    parser.add_argument("--learning_rate", default=5e-5, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")

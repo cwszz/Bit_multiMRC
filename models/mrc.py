@@ -72,7 +72,7 @@ class Ptr_net(nn.Module):
         c_0_p_bound = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device)
         self.lstm_boundary.flatten_parameters()
         self.lstm_m.flatten_parameters()
-        u = torch.zeros(q_features.size(1),p_features.size(0),q_features.size(0)).to(device)
+        u = torch.zeros(p_features.size(1),p_features.size(0),q_features.size(0)).to(device)
         for i,(p_features_batch,q_features_batch) in enumerate(zip(p_features.transpose(0,1).transpose(1,2),q_features.transpose(0,1).transpose(1,2))):
             # sec_u = p_features_batch.unsqueeze(-1).bmm(q_features_batch.unsqueeze(1)).transpose(0,1).transpose(1,2)
             # ss = p_features_batch.transpose(0,1).unsqueeze(1).repeat(1,q_features.size(0),1)
@@ -157,8 +157,8 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         self.content = Content_detect()
         self.verify = Verify_ans(config)
         self.init_weights()
-        self.ptr.w2_a.weight.values = 15 * self.ptr.w2_a.weight
-        self.ptr.w2_a.bias.values = 15 * self.ptr.w2_a.bias
+        self.ptr.w2_a.weight.values = 10 * self.ptr.w2_a.weight
+        self.ptr.w2_a.bias.values = 10 * self.ptr.w2_a.bias
 
     def part_one_loss(self,positions,probability,right_num):
         right_matrix = torch.zeros(probability.size()).to(probability.device)
@@ -200,33 +200,41 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         p_input_ids = p_input_ids.transpose(0,1)
         p_attention_mask = p_attention_mask.transpose(0,1)
         p_token_type_ids = p_token_type_ids.transpose(0,1)
-
+        batch_size = p_input_ids.size(1)
         q_features,q_embedding = self.bert2(q_input_ids,attention_mask = q_attention_mask,token_type_ids=q_token_type_ids,position_ids=q_position_ids, head_mask=q_head_mask)
         p0_features,p0_embedding= self.bert2(p_input_ids[0],attention_mask = p_attention_mask[0],token_type_ids=p_token_type_ids[0],position_ids=p_position_ids,head_mask=p_head_mask)
         p1_features,p1_embedding = self.bert2(p_input_ids[1],attention_mask = p_attention_mask[1],token_type_ids=p_token_type_ids[1],position_ids=p_position_ids,head_mask=p_head_mask)
         p2_features,p2_embedding = self.bert2(p_input_ids[2],attention_mask = p_attention_mask[2],token_type_ids=p_token_type_ids[2],position_ids=p_position_ids,head_mask=p_head_mask)
-        # p_features = torch.cat((p0_features,p1_features,p2_features),1)
-        # final_f,p_alpha1,p_alpha2 = self.ptr(p_features,q_features)
-        final_p0_features,p0_alpha1,p0_alpha2 = self.ptr(p0_features,q_features)
-        final_p1_features,p1_alpha1,p1_alpha2 = self.ptr(p1_features,q_features)
-        final_p2_features,p2_alpha1,p2_alpha2 = self.ptr(p2_features,q_features)
-
-        p0_poss,p0_representation = self.content(final_p0_features,p0_embedding)
-        p1_poss,p1_representation = self.content(final_p1_features,p1_embedding)
-        p2_poss,p2_representation = self.content(final_p2_features,p2_embedding)
-
-        represetation = torch.cat((p0_representation.unsqueeze(-1),p1_representation.unsqueeze(-1),p2_representation.unsqueeze(-1)),-1).transpose(1,2).transpose(0,1)
+        p_features = torch.cat((p0_features,p1_features,p2_features),1)
+        q_features_f = q_features.repeat(1,int(p_features.size(1)/q_features.size(1)),1)
+        final_f,p_alpha1,p_alpha2 = self.ptr(p_features,q_features_f)
+        p_embedding = torch.cat((p0_embedding,p1_embedding,p2_embedding),0)
+        # final_p0_features,p0_alpha1,p0_alpha2 = self.ptr(p0_features,q_features)
+        # final_p1_features,p1_alpha1,p1_alpha2 = self.ptr(p1_features,q_features)
+        # final_p2_features,p2_alpha1,p2_alpha2 = self.ptr(p2_features,q_features)
+        # temp_final = torch.cat((final_p0_features,final_p1_features,final_p2_features),0)
+        # temp_alpha1 = torch.cat((p0_alpha1,p1_alpha1,p2_alpha1),0)
+        # temp_alpha2 = torch.cat((p0_alpha2,p1_alpha2,p2_alpha2),0)
+        p_poss,representation = self.content(final_f,p_embedding)
+        # p0_poss,p0_representation = self.content(final_p0_features,p0_embedding)
+        # p1_poss,p1_representation = self.content(final_p1_features,p1_embedding)
+        # p2_poss,p2_representation = self.content(final_p2_features,p2_embedding)
+        final_representation = torch.cat(representation.unsqueeze(-1).split(batch_size,dim=0),-1).transpose(0,2).transpose(1,2)                            
+        alpha_1 = torch.cat(p_alpha1.unsqueeze(-1).split(batch_size,dim=0),-1).transpose(0,1)
+        alpha_2 = torch.cat(p_alpha2.unsqueeze(-1).split(batch_size,dim=0),-1).transpose(0,1)
+        poss = torch.cat(p_poss.split(batch_size,dim=0),-1).transpose(0,1)
+        # represetation = torch.cat((p0_representation.unsqueeze(-1),p1_representation.unsqueeze(-1),p2_representation.unsqueeze(-1)),-1).transpose(1,2).transpose(0,1)
 
         if start_positions is not None and end_positions is not None:
-            alpha_1 = torch.cat((p0_alpha1.unsqueeze(-1).transpose(0,1),p1_alpha1.unsqueeze(-1).transpose(0,1),
-                            p2_alpha1.unsqueeze(-1).transpose(0,1)),-1)
+            # alpha_1 = torch.cat((p0_alpha1.unsqueeze(-1).transpose(0,1),p1_alpha1.unsqueeze(-1).transpose(0,1),
+            #                 p2_alpha1.unsqueeze(-1).transpose(0,1)),-1)
             start_loss = self.part_one_loss(start_positions,alpha_1,right_num)
-            alpha_2 = torch.cat((p0_alpha2.unsqueeze(-1).transpose(0,1),p1_alpha2.unsqueeze(-1).transpose(0,1),
-                            p2_alpha2.unsqueeze(-1).transpose(0,1)),-1)
+            # alpha_2 = torch.cat((p0_alpha2.unsqueeze(-1).transpose(0,1),p1_alpha2.unsqueeze(-1).transpose(0,1),
+            #                 p2_alpha2.unsqueeze(-1).transpose(0,1)),-1)
             end_loss = self.part_one_loss(end_positions,alpha_2,right_num)
 
-            poss = torch.cat((p0_poss,p1_poss,p2_poss),-1).transpose(0,1) # 400 2 3
+            # poss = torch.cat((p0_poss,p1_poss,p2_poss),-1).transpose(0,1) # 400 2 3
             content_loss,right_index = self.part_two_loss(start_positions,end_positions,poss,right_num)
-            verify_loss = self.verify(represetation,right_index)
+            verify_loss = self.verify(final_representation,right_index)
             return (start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss 
        

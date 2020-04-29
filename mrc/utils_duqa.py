@@ -153,7 +153,7 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         qas_id = example['question_id']
         question_text = example['question']
         # context_tokens = example['doc_tokens']
-        right_num = example['right_doc']
+        # right_num = example['right_doc']
         docs = example['documents']
         right_doc_tokens = example['documents'][right_num]['doc_tokens']
         # context_tokens = example['doc_tokens']
