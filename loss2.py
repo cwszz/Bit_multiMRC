@@ -3,8 +3,8 @@ loss = []
 frequence = []
 matrix =[]
 cnt = []
-epoch = 30
-with open('true_train_final.txt','r',encoding='utf-8',newline='\n') as t:
+epoch = 20
+with open('true_train_w2_15.txt','r',encoding='utf-8',newline='\n') as t:
     temp_loss = 0
     for i in range(epoch):
         matrix.append(0)
