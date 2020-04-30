@@ -105,16 +105,19 @@ def read_baidu_examples(input_file, is_training):
             example = json.loads(line)
             qas_id = example['question_id']
             question_text = example['question']
-            right_num = example['right_doc']
+            
             docs = example['documents']
-            right_doc_tokens = example['documents'][right_num]['doc_tokens']
+          
             # context_tokens = example['doc_tokens']
+            right_num = None
             start_position = None
             end_position = None
             orig_answer_text = None
             #若不是训练，那么数据应该只包含问题，文本，以上三个信息都为None
             #若是训练的话，
             if is_training:
+                right_num = example['right_doc']
+                #   right_doc_tokens = example['documents'][right_num]['doc_tokens']?
                 orig_answer_text = example['answer'][0]
                 start_position = int(example['answer_span'][0])
                 end_position = int(example['answer_span'][1])
