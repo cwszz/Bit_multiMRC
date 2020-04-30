@@ -24,7 +24,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '2,3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -52,7 +52,7 @@ def train(args, train_dataset, model, tokenizer):
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=False)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=True)
 
     if args.max_steps > 0:
         t_total = args.max_steps
@@ -118,7 +118,7 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('Final_train_debug.txt','a+',encoding='utf-8') as f:       
+            with open('Final_train.txt','a+',encoding='utf-8') as f:       
                 f.write(str(loss)+'------'+str(epoch_idx)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
@@ -230,8 +230,9 @@ def evaluate(args, model, tokenizer, prefix=""):
 
 
 def predict(args, model, tokenizer, raw_data):
-    predict_examples = read_baidu_examples_pred(raw_data, is_training=False)
-    predict_features = convert_examples_to_features(
+    # predict_examples = read_baidu_examples_pred(raw_data, is_training=False)
+    predict_examples = read_baidu_examples('data/preprocessed/my_test/test_10.json',is_training=False)
+    features = convert_examples_to_features(
         examples=predict_examples,
         tokenizer=tokenizer,
         max_seq_length=args.max_seq_length,
@@ -239,11 +240,19 @@ def predict(args, model, tokenizer, raw_data):
         max_query_length=args.max_query_length,
         is_training=False
     )
-    all_input_ids = torch.tensor([f.input_ids for f in predict_features], dtype=torch.long)
-    all_input_mask = torch.tensor([f.input_mask for f in predict_features], dtype=torch.long)
-    all_segment_ids = torch.tensor([f.segment_ids for f in predict_features], dtype=torch.long)
-    all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)   
+    # all_input_ids = torch.tensor([f.input_ids for f in predict_features], dtype=torch.long)
+    # all_input_mask = torch.tensor([f.input_mask for f in predict_features], dtype=torch.long)
+    # all_segment_ids = torch.tensor([f.segment_ids for f in predict_features], dtype=torch.long)
+    
+    all_q_input_ids = torch.tensor([f.q_input_ids for f in features], dtype=torch.long)
+    all_q_input_mask = torch.tensor([f.q_input_mask for f in features], dtype=torch.long)
+    all_q_segment_ids = torch.tensor([f.q_segment_ids for f in features], dtype=torch.long)
+    all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
+    all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
+    all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
+    all_example_index = torch.arange(all_q_input_ids.size(0), dtype=torch.long)
+    dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids, 
+                            all_p_input_ids, all_p_input_mask, all_p_segment_ids,all_example_index)   
 
     args.predict_batch_size = args.per_gpu_predict_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
@@ -259,11 +268,14 @@ def predict(args, model, tokenizer, raw_data):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
-            inputs = {'input_ids':      batch[0],
-                      'attention_mask': batch[1],
-                      'token_type_ids': batch[2]
+            inputs = {'q_input_ids':       batch[0],
+                      'q_attention_mask':  batch[1], 
+                      'q_token_type_ids':  batch[2],  
+                      'p_input_ids':       batch[3],
+                      'p_attention_mask':  batch[4], 
+                      'p_token_type_ids':  batch[5],  
                       }
-            example_indices = batch[3]
+            example_indices = batch[6]
             outputs = model(**inputs)
 
         for i, example_index in enumerate(example_indices):
@@ -321,12 +333,13 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
     all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
     all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
     all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
-    all_right_num = torch.tensor([f.right_num for f in features], dtype=torch.int)
+    
     if evaluate:
         all_example_index = torch.arange(all_p_input_ids.size(0), dtype=torch.long)
         dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,all_p_input_ids, 
                                     all_p_input_mask, all_p_segment_ids, all_example_index)
     else:
+        all_right_num = torch.tensor([f.right_num for f in features], dtype=torch.int)
         all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
         all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
         dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,
