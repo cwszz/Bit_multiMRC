@@ -4,9 +4,10 @@ frequence = []
 matrix =[]
 cnt = []
 epoch = 30
-with open('true_train_final.txt','r',encoding='utf-8',newline='\n') as t:
+check = [0,1,2,3,4,5,6]
+with open('Final_train.txt','r',encoding='utf-8',newline='\n') as t:
     temp_loss = 0
-    for i in range(epoch):
+    for i in range(len(check)):
         matrix.append(0)
         cnt.append(0)
         ttt = []
@@ -14,12 +15,12 @@ with open('true_train_final.txt','r',encoding='utf-8',newline='\n') as t:
             ttt.append(0)
         frequence.append(ttt)
     for line in tqdm(t.readlines()):
-        # gggg = line[-3:1]
         num = line.split('--')[-1].strip()
-        matrix[int(num)] += float(line.split('[')[1].split(']')[0])
-        cnt [int(num)] += 1
-        frequence[int(num)][int(float(line.split('[')[1].split(']')[0]))] += 1
-    for i in range(epoch):
+        if(int(num) in check):
+            matrix[int(num)] += float(line.split('[')[1].split(']')[0])
+            cnt [int(num)] += 1
+            frequence[int(num)][int(float(line.split('[')[1].split(']')[0]))] += 1
+    for i in range(len(check)):
         if(cnt[i]!=0):
             loss.append({str(i):matrix[i]/cnt[i]})
     print(loss)
