@@ -24,7 +24,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -52,7 +52,7 @@ def train(args, train_dataset, model, tokenizer):
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=False)
 
     if args.max_steps > 0:
         t_total = args.max_steps
@@ -119,7 +119,7 @@ def train(args, train_dataset, model, tokenizer):
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
             with open('Final_train.txt','a+',encoding='utf-8') as f:       
-                f.write(str(loss)+'------'+str(epoch_idx)+'\n') 
+                f.write(str(loss)+'------'+str(epoch_idx+2)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
@@ -278,19 +278,21 @@ def predict(args, model, tokenizer, raw_data):
             example_indices = batch[6]
             outputs = model(**inputs)
 
-        for i, example_index in enumerate(example_indices):
-            eval_feature = predict_features[example_index.item()]
-            unique_id = int(eval_feature.unique_id)
-            result = RawResult(unique_id    = unique_id,
-                                start_logits = to_list(outputs[0][i]),
-                                end_logits   = to_list(outputs[1][i]))     
-            all_results.append(result)
-
-    all_predictions, all_nbest_json = convert_output(predict_examples, predict_features, all_results,
-                                                    args.n_best_size, args.max_answer_length,
-                                                    args.do_lower_case, args.verbose_logging)
+        # for i, example_index in enumerate(example_indices):
+        #     eval_feature = features[example_index.item()]
+        #     unique_id = int(eval_feature.unique_id)
+        #     result = RawResult(unique_id    = unique_id,
+        #                         start_logits = to_list(outputs[0][i]),
+        #                         end_logits   = to_list(outputs[1][i]))     
+        #     all_results.append(result)
+            ans = []
+            for each_ans,feature in zip(outputs,features):
+                ans.append(''.join(feature.tokens[each_ans['id']][each_ans['start']:each_ans['end']]))
+    # all_predictions, all_nbest_json = convert_output(predict_examples, features, all_results,
+    #                                                 args.n_best_size, args.max_answer_length,
+    #                                                 args.do_lower_case, args.verbose_logging)
     
-    return all_predictions, all_nbest_json
+    # return all_predictions, all_nbest_json
 
 
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
@@ -393,7 +395,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=5e-5, type=float,
+    parser.add_argument("--learning_rate", default=6e-5, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -474,7 +476,9 @@ def main():
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
     config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path)
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
-    model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
+    # model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
+    model = BertForBaiduQA_Answer_Selection(config=config)
+    model.load_state_dict(state_dict= torch.load(args.model_name_or_path+'/pytorch_model.bin'))
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab

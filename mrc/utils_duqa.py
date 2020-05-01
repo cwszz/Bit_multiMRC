@@ -117,7 +117,7 @@ def read_baidu_examples(input_file, is_training):
             #若是训练的话，
             if is_training:
                 right_num = example['right_doc']
-                #   right_doc_tokens = example['documents'][right_num]['doc_tokens']?
+                right_doc_tokens = example['documents'][right_num]['doc_tokens']
                 orig_answer_text = example['answer'][0]
                 start_position = int(example['answer_span'][0])
                 end_position = int(example['answer_span'][1])

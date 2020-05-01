@@ -131,7 +131,7 @@ class Verify_ans(nn.Module):
         super(Verify_ans,self).__init__()
         self.w3_a = nn.Linear(config.hidden_size * 3, 1)
     
-    def forward(self,representation,right_index):
+    def forward(self,representation):
         s = representation.bmm(representation.transpose(1,2))
         for i in range(s.size(0)):
             for j in range(s.size(1)):
@@ -190,6 +190,17 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         final_loss = torch.max(torch.sum(final_loss,0).mul(right_index),1)[0]
         final_loss = torch.div(final_loss,probability.size(0))
         return (final_loss[0]+final_loss[1])/2,right_index
+    
+    # def part_one_score(self,probability)
+    
+    def second_score(self,poss,start_positions,end_positions):
+        scores = torch.zeros(end_positions.size())
+        for i,(start,end) in enumerate(zip(start_positions,end_positions)):
+            for j,(each_start,each_end) in enumerate(zip(start,end)):
+                # a = torch.sum(poss[each_start:each_end+1,i,j],dim=0)
+                scores[i][j] = torch.div(torch.sum(poss[each_start:each_end+1,i,j],dim=0),each_end+1-each_start)
+                # return poss[each_start]
+        return scores
 
     def forward(self, q_input_ids,  p_input_ids,q_attention_mask=None, q_token_type_ids=None, q_position_ids=None, q_head_mask=None,
                 p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,right_num = None,
@@ -211,29 +222,39 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         final_p0_features,p0_alpha1,p0_alpha2 = self.ptr(p0_features,q_features)
         final_p1_features,p1_alpha1,p1_alpha2 = self.ptr(p1_features,q_features)
         final_p2_features,p2_alpha1,p2_alpha2 = self.ptr(p2_features,q_features)
-        # p_poss,representation = self.content(final_f,p_embedding)
+        alpha_1 = torch.cat((p0_alpha1.unsqueeze(-1).transpose(0,1),p1_alpha1.unsqueeze(-1).transpose(0,1),
+                            p2_alpha1.unsqueeze(-1).transpose(0,1)),-1)
+        alpha_2 = torch.cat((p0_alpha2.unsqueeze(-1).transpose(0,1),p1_alpha2.unsqueeze(-1).transpose(0,1),
+                            p2_alpha2.unsqueeze(-1).transpose(0,1)),-1)
+
         p0_poss,p0_representation = self.content(final_p0_features,p0_embedding)
         p1_poss,p1_representation = self.content(final_p1_features,p1_embedding)
         p2_poss,p2_representation = self.content(final_p2_features,p2_embedding)
-        # final_representation = torch.cat(representation.unsqueeze(-1).split(batch_size,dim=0),-1).transpose(0,2).transpose(1,2)                            
-        # alpha_1 = torch.cat(p_alpha1.unsqueeze(-1).split(batch_size,dim=0),-1).transpose(0,1)
-        # alpha_2 = torch.cat(p_alpha2.unsqueeze(-1).split(batch_size,dim=0),-1).transpose(0,1)
-        # poss = torch.cat(p_poss.split(batch_size,dim=0),-1).transpose(0,1)
+        poss = torch.cat((p0_poss,p1_poss,p2_poss),-1).transpose(0,1) # 400 2 3
+
         representation = torch.cat((p0_representation.unsqueeze(-1),p1_representation.unsqueeze(-1),p2_representation.unsqueeze(-1)),-1).transpose(1,2).transpose(0,1)
         p = self.verify(representation)
+     
         if start_positions is not None and end_positions is not None:
-            alpha_1 = torch.cat((p0_alpha1.unsqueeze(-1).transpose(0,1),p1_alpha1.unsqueeze(-1).transpose(0,1),
-                            p2_alpha1.unsqueeze(-1).transpose(0,1)),-1)
             start_loss = self.part_one_loss(start_positions,alpha_1,right_num)
-            alpha_2 = torch.cat((p0_alpha2.unsqueeze(-1).transpose(0,1),p1_alpha2.unsqueeze(-1).transpose(0,1),
-                            p2_alpha2.unsqueeze(-1).transpose(0,1)),-1)
             end_loss = self.part_one_loss(end_positions,alpha_2,right_num)
             
-            poss = torch.cat((p0_poss,p1_poss,p2_poss),-1).transpose(0,1) # 400 2 3
             content_loss,right_index = self.part_two_loss(start_positions,end_positions,poss,right_num)
 
             part_three_loss = torch.max(p.transpose(0,1).mul(right_index),1)[0]
             verify_loss = (part_three_loss[0]+part_three_loss[1])/2
 
             return (start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss 
-       
+        else:
+            ans_start = torch.max(alpha_1,dim=0)
+            ans_end = torch.max(alpha_2,dim=0)
+            part_one_score = torch.exp(ans_start[0].float()).mul(torch.exp(ans_end[0].float()))
+            part_two_score = self.second_score(poss,ans_start[1],ans_end[1])
+            part_three_score = torch.exp(p).transpose(0,1)
+            final_score = part_one_score + part_two_score + part_three_score
+            indexs = torch.max(final_score,dim=1)[1]
+            final_position = []
+            for i in range(len(indexs)):
+                final_position.append({'id':indexs[i],'start':ans_start[1][i][indexs[i]],'end':ans_end[1][i][indexs[i]]}) 
+            return final_position
+            

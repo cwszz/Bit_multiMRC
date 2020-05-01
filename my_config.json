@@ -1,0 +1,17 @@
+{
+    "mrc":{
+        "model_name_or_path": "checkpoints/mrc_final_5k",
+        "model_type": "bert",
+        "max_seq_length": 400,
+        "doc_stride": 128,
+        "max_query_length": 64,
+        "per_gpu_predict_batch_size": 5,
+        "n_best_size": 20,
+        "max_answer_length": 512,
+        "no_cuda": true,
+        "seed": 42,
+        "do_lower_case": true,
+        "verbose_logging": false,
+        "local_rank": -1
+    }
+}

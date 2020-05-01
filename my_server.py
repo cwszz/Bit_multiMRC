@@ -22,6 +22,7 @@ from creeper import creeper_v1, creeper_v2
 from creeper.spider import crawl
 from mrc import mrc_MODEL_CLASSES, mrc_predict, set_seed, to_list
 from rerank import rerank_MODEL_CLASSES, rerank_predict
+from models import BertForBaiduQA_Answer_Selection
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -72,9 +73,12 @@ class Mrc(object):
         config_class, model_class, tokenizer_class = mrc_MODEL_CLASSES[args.model_type]
         self.config = config_class.from_pretrained(args.model_name_or_path)
         self.tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, do_lower_case=args.do_lower_case)
-        self.model = model_class.from_pretrained(args.model_name_or_path,
-                                                 from_tf=bool('.ckpt' in args.model_name_or_path), config=self.config)
-
+        # self.model = model_class.from_pretrained(args.model_name_or_path,
+        #                                          from_tf=bool('.ckpt' in args.model_name_or_path), config=self.config)
+        state_dict  = torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location='cpu')
+        self.model = BertForBaiduQA_Answer_Selection(config= self.config)
+        self.model.load_state_dict(state_dict= state_dict)
+        
         if args.local_rank == 0:
             torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
@@ -192,17 +196,17 @@ class Demo(object):
         examples = []
         examples = self.mrc_processor.predict(examples)
         #print("part2 Finish")
-        examples = self.rerank_processor.predict(examples)
+        # examples = self.rerank_processor.predict(examples)
         #print("part3 Finish")
-        examples = self.choose_processor.process(examples)
-        if( examples[0]['doc_tokens']== examples[0]['temp_tokens']):
-            examples = self.filter(examples, self.indexs)
-            return examples[0]
-        examples[0]['doc_tokens']= examples[0]['temp_tokens']
-        examples.append(self.mrc_processor.predict([examples[0]])[0])
-        examples = self.rerank_processor.predict(examples)
-        examples = self.choose_processor.process(examples)
-        examples = self.filter(examples, self.indexs)
+        # examples = self.choose_processor.process(examples)
+        # if( examples[0]['doc_tokens']== examples[0]['temp_tokens']):
+        #     examples = self.filter(examples, self.indexs)
+        #     return examples[0]
+        # examples[0]['doc_tokens']= examples[0]['temp_tokens']
+        # examples.append(self.mrc_processor.predict([examples[0]])[0])
+        # examples = self.rerank_processor.predict(examples)
+        # examples = self.choose_processor.process(examples)
+        # examples = self.filter(examples, self.indexs)
         #print("part5 Finish")
         return examples[0]
 
