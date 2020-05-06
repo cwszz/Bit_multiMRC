@@ -468,8 +468,8 @@ def main():
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
             total_num  += 1
-            if total_num > 100:
-                break
+            # if total_num > 100:
+            #     break
             if args.output:
                 preprocessed_sample = {}
             sample = json.loads(line)
@@ -556,6 +556,7 @@ def main():
                     preprocessed_sample['question'] = sample['question']
                     preprocessed_sample['question_tokens'] = sample['segmented_question']
                     preprocessed_sample['question_id'] = sample['question_id']
+                    preprocessed_sample['question_type'] = sample['question_type']
                     
                     # preprocessed_sample['doc_tokens'] = [word for para in sample['passage_tokens'] for word in para]
                     # preprocessed_sample['doc_tokens_len'] = len(preprocessed_sample['doc_tokens'])

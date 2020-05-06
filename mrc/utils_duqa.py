@@ -26,6 +26,7 @@ class BaiduExample(object):
                  qas_id,
                  question_text,
                  documents,
+                 question_type=None,
                  right_num = None,
                  orig_answer_text=None,
                  start_position=None,
@@ -34,6 +35,7 @@ class BaiduExample(object):
         self.question_text = question_text
         self.documents = documents
         self.right_num = right_num
+        self.question_type = question_type
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
         self.end_position = end_position
@@ -101,13 +103,16 @@ def read_baidu_examples(input_file, is_training):
     flag = 0
     with open(input_file, "r", encoding='utf-8') as reader:
         examples = []
+        # cnt = 0
         for line in tqdm(reader, desc='reading baidu examples...'):
             example = json.loads(line)
             qas_id = example['question_id']
             question_text = example['question']
-            
+            # cnt += 1
+            # if(cnt >5):
+            #     break
             docs = example['documents']
-          
+            qtype = example['question_type']
             # context_tokens = example['doc_tokens']
             right_num = None
             start_position = None
@@ -132,6 +137,7 @@ def read_baidu_examples(input_file, is_training):
                 qas_id=qas_id,
                 question_text=question_text,
                 documents=docs,
+                question_type=qtype,
                 right_num = right_num,
                 orig_answer_text=orig_answer_text,
                 start_position=start_position,
@@ -156,7 +162,7 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         qas_id = example['question_id']
         question_text = example['question']
         # context_tokens = example['doc_tokens']
-        # right_num = example['right_doc']
+        right_num = example['right_doc']
         docs = example['documents']
         right_doc_tokens = example['documents'][right_num]['doc_tokens']
         # context_tokens = example['doc_tokens']

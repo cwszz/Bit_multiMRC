@@ -24,7 +24,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,3'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -118,8 +118,8 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('Final_train.txt','a+',encoding='utf-8') as f:       
-                f.write(str(loss)+'------'+str(epoch_idx+2)+'\n') 
+            with open('Final_train_5.txt','a+',encoding='utf-8') as f:       
+                f.write(str(loss)+'------'+str(epoch_idx+4)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
@@ -231,7 +231,7 @@ def evaluate(args, model, tokenizer, prefix=""):
 
 def predict(args, model, tokenizer, raw_data):
     # predict_examples = read_baidu_examples_pred(raw_data, is_training=False)
-    predict_examples = read_baidu_examples('data/preprocessed/my_test/test_10.json',is_training=False)
+    predict_examples = read_baidu_examples('data/preprocessed/my_dev/dev.json',is_training=False)
     features = convert_examples_to_features(
         examples=predict_examples,
         tokenizer=tokenizer,
@@ -264,6 +264,7 @@ def predict(args, model, tokenizer, raw_data):
     logger.info("  Num examples = %d", len(dataset))
     logger.info("  Batch size = %d", args.predict_batch_size)
     all_results = []
+    ans = []
     for batch in tqdm(predict_dataloader, desc="Predicting"):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
@@ -275,7 +276,7 @@ def predict(args, model, tokenizer, raw_data):
                       'p_attention_mask':  batch[4], 
                       'p_token_type_ids':  batch[5],  
                       }
-            example_indices = batch[6]
+            # example_indices = batch[6]
             outputs = model(**inputs)
 
         # for i, example_index in enumerate(example_indices):
@@ -285,14 +286,25 @@ def predict(args, model, tokenizer, raw_data):
         #                         start_logits = to_list(outputs[0][i]),
         #                         end_logits   = to_list(outputs[1][i]))     
         #     all_results.append(result)
-            ans = []
-            for each_ans,feature in zip(outputs,features):
-                ans.append(''.join(feature.tokens[each_ans['id']][each_ans['start']:each_ans['end']]))
+            for each_ans,feature,p_example in zip(outputs,features,predict_examples):
+                temp_ans ={}
+                l = len(feature.token_to_orig_map[each_ans['id']])
+                s = min(l,int(each_ans['start'])+1)
+                e = min(l,int(each_ans['end'])+1)
+                real_start = feature.token_to_orig_map[each_ans['id']][s]
+                real_end = feature.token_to_orig_map[each_ans['id']][e]
+                temp_ans['question_type'] = p_example.question_type
+                temp_ans['question'] = p_example.question_text
+                temp_ans['question_id'] = p_example.qas_id
+                temp_ans['answers'] = [''.join(p_example.documents[each_ans['id']]['doc_tokens'][real_start:real_end])]
+                temp_ans['source'] = 'search'
+                 
+                ans.append(temp_ans)
     # all_predictions, all_nbest_json = convert_output(predict_examples, features, all_results,
     #                                                 args.n_best_size, args.max_answer_length,
     #                                                 args.do_lower_case, args.verbose_logging)
     
-    # return all_predictions, all_nbest_json
+    return ans
 
 
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
@@ -395,7 +407,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=6e-5, type=float,
+    parser.add_argument("--learning_rate", default=3e-5, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")

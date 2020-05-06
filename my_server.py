@@ -131,22 +131,24 @@ class Mrc(object):
             }
         ]       
         """
-        all_predictions, all_nbest_json = mrc_predict(self.args, self.model, self.tokenizer, examples)
-        assert len(all_predictions) == len(examples)
-        assert len(all_nbest_json) == len(examples)
-        for example in examples:
-            qid = example['question_id']
-            logitslist = [var['start_logit'] + var['end_logit'] for var in all_nbest_json[qid]]
-            problist = [var['start_prob'] * var['end_prob'] for var in all_nbest_json[qid]]
-            problist_v1 = [var['start_prob_v1'] * var['end_prob_v1'] for var in all_nbest_json[qid]]
-            example['answer'] = all_predictions[qid].replace('\n', '').replace(' ', '').strip()
-            example['answer_start_index'] = all_nbest_json[qid][0]['start_index']
-            example['answer_end_index'] = all_nbest_json[qid][0]['end_index']
-            example['raw_text']=all_nbest_json[qid][0]['raw_text']
-            example['mrc_logits'] = sum(logitslist) / len(logitslist)
-            example['mrc_prob'] = sum(problist) / len(problist)
-            example['mrc_prob_v1'] = sum(problist_v1) / len(problist_v1)
-        return examples
+        answers = mrc_predict(self.args, self.model, self.tokenizer, examples)
+
+        # all_predictions, all_nbest_json = mrc_predict(self.args, self.model, self.tokenizer, examples)
+        # assert len(all_predictions) == len(examples)
+        # assert len(all_nbest_json) == len(examples)
+        # for example in examples:
+        #     qid = example['question_id']
+        #     logitslist = [var['start_logit'] + var['end_logit'] for var in all_nbest_json[qid]]
+        #     problist = [var['start_prob'] * var['end_prob'] for var in all_nbest_json[qid]]
+        #     problist_v1 = [var['start_prob_v1'] * var['end_prob_v1'] for var in all_nbest_json[qid]]
+        #     example['answer'] = all_predictions[qid].replace('\n', '').replace(' ', '').strip()
+        #     example['answer_start_index'] = all_nbest_json[qid][0]['start_index']
+        #     example['answer_end_index'] = all_nbest_json[qid][0]['end_index']
+        #     example['raw_text']=all_nbest_json[qid][0]['raw_text']
+        #     example['mrc_logits'] = sum(logitslist) / len(logitslist)
+        #     example['mrc_prob'] = sum(problist) / len(problist)
+        #     example['mrc_prob_v1'] = sum(problist_v1) / len(problist_v1)
+        return answers
 
 class Demo(object):
     def __init__(self, config_path):
@@ -208,7 +210,7 @@ class Demo(object):
         # examples = self.choose_processor.process(examples)
         # examples = self.filter(examples, self.indexs)
         #print("part5 Finish")
-        return examples[0]
+        return examples
 
 
 if __name__ == "__main__":
@@ -222,7 +224,11 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # print("____________________________________"+ args.config_path)
     D = Demo("my_config.json")
-    D.predict("西红柿做法")
+    answers = D.predict("西红柿做法")
+    with open('data/preprocessed/my_dev/dev_pre.json','w',encoding='utf-8',newline='\n') as w:
+        for ans in answers:
+            w.write(json.dumps(ans,ensure_ascii=False)+'\n')
+
 
     # @app.route('/api/func1', methods=['POST', 'GET'])
     # def func1():

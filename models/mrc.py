@@ -29,7 +29,7 @@ class Feature_Extraction(BertPreTrainedModel):
         super(Feature_Extraction,self).__init__(config)
         self.temp_hidden = 200
         self.bert = BertModel(config)
-        self.bert.train
+        # self.bert.train
         self.lstmlayers = 1
         self.config = config
         self.lstm = nn.LSTM(input_size=config.hidden_size,hidden_size=self.temp_hidden,
