@@ -118,7 +118,7 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('Final_train_5.txt','a+',encoding='utf-8') as f:       
+            with open('Large_1.txt','a+',encoding='utf-8') as f:       
                 f.write(str(loss)+'------'+str(epoch_idx+4)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
@@ -232,14 +232,21 @@ def evaluate(args, model, tokenizer, prefix=""):
 def predict(args, model, tokenizer, raw_data):
     # predict_examples = read_baidu_examples_pred(raw_data, is_training=False)
     predict_examples = read_baidu_examples('data/preprocessed/my_dev/dev.json',is_training=False)
-    features = convert_examples_to_features(
-        examples=predict_examples,
-        tokenizer=tokenizer,
-        max_seq_length=args.max_seq_length,
-        doc_stride=args.doc_stride,
-        max_query_length=args.max_query_length,
-        is_training=False
-    )
+    cached_features_file = "data/preprocessed/my_test/cached_dev"
+    if os.path.exists(cached_features_file):
+        logger.info("Loading features from cached file %s", cached_features_file)
+        features = torch.load(cached_features_file)
+    else:
+        features = convert_examples_to_features(
+            examples=predict_examples,
+            tokenizer=tokenizer,
+            max_seq_length=args.max_seq_length,
+            doc_stride=args.doc_stride,
+            max_query_length=args.max_query_length,
+            is_training=False
+        )
+        logger.info("Saving features into cached file %s", "data/preprocessed/my_test/cached_dev")
+        torch.save(features, cached_features_file)
     # all_input_ids = torch.tensor([f.input_ids for f in predict_features], dtype=torch.long)
     # all_input_mask = torch.tensor([f.input_mask for f in predict_features], dtype=torch.long)
     # all_segment_ids = torch.tensor([f.segment_ids for f in predict_features], dtype=torch.long)
@@ -263,7 +270,8 @@ def predict(args, model, tokenizer, raw_data):
     logger.info("***** Running prediction *****")
     logger.info("  Num examples = %d", len(dataset))
     logger.info("  Batch size = %d", args.predict_batch_size)
-    all_results = []
+    # all_results = []
+    f_cnt = 0
     ans = []
     for batch in tqdm(predict_dataloader, desc="Predicting"):
         model.eval()
@@ -286,11 +294,13 @@ def predict(args, model, tokenizer, raw_data):
         #                         start_logits = to_list(outputs[0][i]),
         #                         end_logits   = to_list(outputs[1][i]))     
         #     all_results.append(result)
-            for each_ans,feature,p_example in zip(outputs,features,predict_examples):
+            for i,each_ans in enumerate(outputs):
+                p_example = predict_examples[f_cnt* args.predict_batch_size+i]
                 temp_ans ={}
+                feature = features[f_cnt* args.predict_batch_size+i]
                 l = len(feature.token_to_orig_map[each_ans['id']])
                 s = min(l,int(each_ans['start'])+1)
-                e = min(l,int(each_ans['end'])+1)
+                e = min(l,int(each_ans['end'])+2)
                 real_start = feature.token_to_orig_map[each_ans['id']][s]
                 real_end = feature.token_to_orig_map[each_ans['id']][e]
                 temp_ans['question_type'] = p_example.question_type
@@ -300,6 +310,7 @@ def predict(args, model, tokenizer, raw_data):
                 temp_ans['source'] = 'search'
                  
                 ans.append(temp_ans)
+        f_cnt += 1
     # all_predictions, all_nbest_json = convert_output(predict_examples, features, all_results,
     #                                                 args.n_best_size, args.max_answer_length,
     #                                                 args.do_lower_case, args.verbose_logging)
@@ -407,7 +418,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=3e-5, type=float,
+    parser.add_argument("--learning_rate", default=5e-5, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -490,7 +501,7 @@ def main():
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
     # model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
     model = BertForBaiduQA_Answer_Selection(config=config)
-    model.load_state_dict(state_dict= torch.load(args.model_name_or_path+'/pytorch_model.bin'))
+    model.load_state_dict(state_dict= torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location=lambda storage, loc: storage))
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab

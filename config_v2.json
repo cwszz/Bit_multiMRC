@@ -3,7 +3,7 @@
         "creeper_type": "v2"
     },
     "mrc":{
-        "model_name_or_path": "checkpoints/mrc_final_5k",
+        "model_name_or_path": "checkpoints/final_train_6/checkpoint-2",
         "model_type": "bert",
         "max_seq_length": 400,
         "doc_stride": 128,

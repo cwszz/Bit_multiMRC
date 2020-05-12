@@ -5,13 +5,13 @@ matrix =[]
 cnt = []
 epoch = 30
 check = [4,5,6,7,8,9]
-with open('Final_train_5.txt','r',encoding='utf-8',newline='\n') as t:
+with open('Large_1.txt','r',encoding='utf-8',newline='\n') as t:
     temp_loss = 0
     for i in range(len(check)):
         matrix.append(0)
         cnt.append(0)
         ttt = []
-        for j in range(7):
+        for j in range(8):
             ttt.append(0)
         frequence.append(ttt)
     for line in tqdm(t.readlines()):

@@ -244,7 +244,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             part_three_loss = torch.max(p.transpose(0,1).mul(right_index),1)[0]
             verify_loss = (part_three_loss[0]+part_three_loss[1])/2
 
-            return (start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss 
+            return (start_loss +end_loss)/2 + 0.6 * content_loss + 0.8 * verify_loss 
         else:
             ans_start = torch.max(alpha_1,dim=0)
             ans_end = torch.max(alpha_2,dim=0)

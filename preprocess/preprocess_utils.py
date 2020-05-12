@@ -463,13 +463,11 @@ def main():
 
     with open(args.data_file, encoding='utf-8') as f:
         if args.output:
-            f_output = open(args.output_file, 'w+', encoding='utf-8')
+            f_output = open(args.output_file, 'a+', encoding='utf-8')
         max_recall_list = []
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
-            total_num  += 1
-            # if total_num > 100:
-            #     break
+            
             if args.output:
                 preprocessed_sample = {}
             sample = json.loads(line)
@@ -565,6 +563,9 @@ def main():
                         preprocessed_sample['answer_span'] = sample['answer_spans'][0]
                   
                     f_output.write(json.dumps(preprocessed_sample, ensure_ascii=False) + '\n')
+                    total_num  += 1
+                    if total_num > 39999:
+                        break   
                 except Exception as e:
                     pass
 

@@ -103,13 +103,13 @@ def read_baidu_examples(input_file, is_training):
     flag = 0
     with open(input_file, "r", encoding='utf-8') as reader:
         examples = []
-        # cnt = 0
+        cnt = 0
         for line in tqdm(reader, desc='reading baidu examples...'):
             example = json.loads(line)
             qas_id = example['question_id']
             question_text = example['question']
             # cnt += 1
-            # if(cnt >5):
+            # if(cnt >50):
             #     break
             docs = example['documents']
             qtype = example['question_type']
