@@ -52,7 +52,7 @@ def train(args, train_dataset, model, tokenizer):
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=8,pin_memory=False)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=16,pin_memory=True)
 
     if args.max_steps > 0:
         t_total = args.max_steps
@@ -62,10 +62,14 @@ def train(args, train_dataset, model, tokenizer):
 
     # Prepare optimizer and schedule (linear warmup and decay)
     # 感觉这里是在把预训练模型的权重读入进来
+    # for name, param in model.named_parameters():
+	#     print(name,param.requires_grad)
+	#     if('bert2.bert' in name):
+    #         param.requires_grad = False
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and 'bert2.bert'not in n], 'weight_decay': args.weight_decay},
+        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)and 'bert2.bert'not in n], 'weight_decay': 0.0}
         ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total)
@@ -102,8 +106,12 @@ def train(args, train_dataset, model, tokenizer):
     model.zero_grad()
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])   #local rank 也不是知道是啥
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
+    # f = open('o6.txt','a+',encoding='utf-8')
+    # ff = open('each_loss2.txt','a+',encoding='utf-8')
     for epoch_idx, epoch in tqdm(enumerate(train_iterator), desc='training epoches'):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
+        # if epoch_idx < 3:
+        #         continue  # temp
         for step, batch in tqdm(enumerate(epoch_iterator), desc='training batches'):
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
@@ -118,8 +126,12 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('Large_1.txt','a+',encoding='utf-8') as f:       
-                f.write(str(loss)+'------'+str(epoch_idx+4)+'\n') 
+            with open('final2.txt','a+',encoding='utf-8') as f:
+                f.write(str(loss.mean())+'------'+str(epoch_idx)+'\n') 
+            # ff.write(str(outputs[1].mean())+'---1---'+str(epoch_idx)+'\n') 
+            # ff.write(str(outputs[2].mean())+'---2---'+str(epoch_idx)+'\n') 
+            with open('final_eachloss3.txt','a+',encoding='utf-8') as ff:
+                ff.write(str(outputs[3].mean())+'---3---'+str(epoch_idx)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
             # 这个时候output出来的 是loss-> Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
@@ -186,6 +198,7 @@ def train(args, train_dataset, model, tokenizer):
     return global_step, tr_loss / global_step
 
 
+
 def evaluate(args, model, tokenizer, prefix=""):
     dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=True, output_examples=True)
 
@@ -228,8 +241,26 @@ def evaluate(args, model, tokenizer, prefix=""):
                     output_nbest_file, args.verbose_logging)
     return 0
 
+def out_result(output,features,num,ans,predict_examples):
+    for i,each_ans in enumerate(output):
+        p_example = predict_examples[num+i]
+        temp_ans ={}
+        feature = features[num+i]
+        l = len(feature.token_to_orig_map[each_ans['id']])
+        s = min(l,int(each_ans['start'])+1)
+        e = min(l,int(each_ans['end'])+2)
+        real_start = feature.token_to_orig_map[each_ans['id']][s]
+        real_end = feature.token_to_orig_map[each_ans['id']][e]
+        temp_ans['question_type'] = p_example.question_type
+        temp_ans['question'] = p_example.question_text
+        temp_ans['question_id'] = p_example.qas_id
+        temp_ans['answers'] = [''.join(p_example.documents[each_ans['id']]['doc_tokens'][real_start:real_end])]
+        temp_ans['source'] = 'search'
+        temp_ans['score'] =each_ans['score']
+        ans.append(temp_ans)
 
 def predict(args, model, tokenizer, raw_data):
+
     # predict_examples = read_baidu_examples_pred(raw_data, is_training=False)
     predict_examples = read_baidu_examples('data/preprocessed/my_dev/dev.json',is_training=False)
     cached_features_file = "data/preprocessed/my_test/cached_dev"
@@ -286,7 +317,8 @@ def predict(args, model, tokenizer, raw_data):
                       }
             # example_indices = batch[6]
             outputs = model(**inputs)
-
+            # if f_cnt>40:
+            #     break
         # for i, example_index in enumerate(example_indices):
         #     eval_feature = features[example_index.item()]
         #     unique_id = int(eval_feature.unique_id)
@@ -294,7 +326,12 @@ def predict(args, model, tokenizer, raw_data):
         #                         start_logits = to_list(outputs[0][i]),
         #                         end_logits   = to_list(outputs[1][i]))     
         #     all_results.append(result)
+            # num = f_cnt* args.predict_batch_size
+            # for output in outputs:
+            #     out_result(output,features,num,ans,predict_examples)
             for i,each_ans in enumerate(outputs):
+                # if f_cnt == 114:
+                #     f_cnt = 114
                 p_example = predict_examples[f_cnt* args.predict_batch_size+i]
                 temp_ans ={}
                 feature = features[f_cnt* args.predict_batch_size+i]
@@ -308,6 +345,7 @@ def predict(args, model, tokenizer, raw_data):
                 temp_ans['question_id'] = p_example.qas_id
                 temp_ans['answers'] = [''.join(p_example.documents[each_ans['id']]['doc_tokens'][real_start:real_end])]
                 temp_ans['source'] = 'search'
+                temp_ans['score'] =each_ans['score']
                  
                 ans.append(temp_ans)
         f_cnt += 1
@@ -418,7 +456,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=5e-5, type=float,
+    parser.add_argument("--learning_rate", default=5e-3, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -502,7 +540,12 @@ def main():
     # model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
     model = BertForBaiduQA_Answer_Selection(config=config)
     model.load_state_dict(state_dict= torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location=lambda storage, loc: storage))
-
+    for name, param in model.named_parameters():
+        if('bert2.bert' in name):
+	        param.requires_grad=False
+        print(name,param.requires_grad)
+    # for name, param in model.named_parameters():
+	#     print(name,param.requires_grad)
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
     # model = torch.nn.DataParallel(model)

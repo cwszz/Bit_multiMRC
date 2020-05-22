@@ -81,7 +81,10 @@ class Mrc(object):
         
         if args.local_rank == 0:
             torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
+        # if args.n_gpu > 1:
+        #     self.model = torch.nn.DataParallel(self.model)
+        #     self.model.to(args.device)
+        # else:
         self.model.to(args.device)
         self.args = args
 

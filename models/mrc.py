@@ -87,19 +87,24 @@ class Ptr_net(nn.Module):
         u = u.transpose(0,1).transpose(1,2)
         q2c_attention = F.softmax(u,1).transpose(0,2).transpose(1,2) # dim=1 表示行加和为1
                 # U_t = 对j叠加，a_(t,j)*U_j 所以j也就是query_length加和为1
-        c2q_attention = torch.max(u,1)[0].transpose(0,1) # dim = 0 表示从512个第0维中找出代表512个最大的
+        c2q_attention = F.softmax(torch.max(u,1)[0].transpose(0,1),1) # dim = 0 表示从512个第0维中找出代表512个最大的
+        # c2q_attention = torch.max(u,1)[0].transpose(0,1) # dim = 0 表示从512个第0维中找出代表512个最大的
         new_p_features_u = q2c_attention.bmm(q_features.transpose(0,1))
             # 获得q2c的加权特征  可能可以简化一下
         p_features = p_features.transpose(0,1)
-        new_p_features_h = torch.zeros(p_features.size()).to(device)
-        for i, (each_c2q,p_feature) in enumerate(zip(c2q_attention,p_features)):
-            for j,(c2q_weight,p_word_feature) in enumerate(zip(each_c2q,p_feature)):
-                    new_p_features_h[i][j] = c2q_weight * p_word_feature
+        # new_p_features_h = torch.zeros(p_features.size()).to(device)
+        # c2q_attention = c2q_attention.unsqueeze(-1).repeat(1,1,400)
+        # for i, (each_c2q,p_feature) in enumerate(zip(c2q_attention,p_features)):
+        #     for j,(c2q_weight,p_word_feature) in enumerate(zip(each_c2q,p_feature)):
+        #             new_p_features_h[i][j] = c2q_weight * p_word_feature
+        new_p_features_h = c2q_attention.unsqueeze(-1).repeat(1,1,400).mul(p_features)
         final_p_features = torch.cat((p_features,new_p_features_h,p_features.mul(new_p_features_u),p_features.mul(new_p_features_h)),-1)  
         final_p_features = self.lstm_m(final_p_features,(h_0_p,c_0_p))[0]
         h_0_a = Variable(torch.zeros(final_p_features.size(0),1,final_p_features.size(2))).to(device) # 这个不知道人家咋初始化的
         alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
             ,2)))).squeeze(2),1).unsqueeze(1) #(6)
+        # alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,p_features)
+        #     ,2)))).squeeze(2),1).unsqueeze(1) #(6)
         c_1 = alpha_1.bmm(final_p_features)
         h_0_a = self.lstm_boundary(c_1,(h_0_p_bound,c_0_p_bound))[0]
         """第二次计算END，alpha2就是结束概率"""
@@ -139,7 +144,7 @@ class Verify_ans(nn.Module):
         s = torch.softmax(s,-1)
         verify_rpt = s.bmm(representation)
         # p = torch.zeros(p_input_ids.size(0),p_input_ids.size(1)).to(device)
-        p = F.softmax(self.w3_a(torch.cat((representation,verify_rpt,verify_rpt.mul(representation)),-1)),1)
+        p = F.softmax(self.w3_a(torch.cat((representation,verify_rpt,verify_rpt.mul(representation)),-1)),0)
         p = torch.log(p).squeeze(-1)
         return p
 
@@ -156,8 +161,8 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         self.content = Content_detect()
         self.verify = Verify_ans(config)
         self.init_weights()
-        self.ptr.w2_a.weight.values = 10 * self.ptr.w2_a.weight
-        self.ptr.w2_a.bias.values = 10 * self.ptr.w2_a.bias
+        # self.ptr.w2_a.weight.values = 10 * self.ptr.w2_a.weight
+        # self.ptr.w2_a.bias.values = 10 * self.ptr.w2_a.bias
 
     def part_one_loss(self,positions,probability,right_num):
         right_matrix = torch.zeros(probability.size()).to(probability.device)
@@ -189,16 +194,20 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
         final_loss = -1 * torch.log(right_bias - final_loss) 
         final_loss = torch.max(torch.sum(final_loss,0).mul(right_index),1)[0]
         final_loss = torch.div(final_loss,probability.size(0))
-        return (final_loss[0]+final_loss[1])/2,right_index
+        fix_loss = torch.div(torch.sum(final_loss),final_loss.size(0))
+        return fix_loss,right_index
     
     # def part_one_score(self,probability)
     
     def second_score(self,poss,start_positions,end_positions):
-        scores = torch.zeros(end_positions.size())
+        scores = torch.zeros(end_positions.size()).to(poss.device)
         for i,(start,end) in enumerate(zip(start_positions,end_positions)):
             for j,(each_start,each_end) in enumerate(zip(start,end)):
                 # a = torch.sum(poss[each_start:each_end+1,i,j],dim=0)
-                scores[i][j] = torch.div(torch.sum(poss[each_start:each_end+1,i,j],dim=0),each_end+1-each_start)
+                if(each_end-each_start<1):
+                    scores[i][j] = -2
+                else:
+                    scores[i][j] = torch.div(torch.sum(poss[each_start:each_end+1,i,j],dim=0),each_end+1-each_start)
                 # return poss[each_start]
         return scores
 
@@ -241,10 +250,10 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             
             content_loss,right_index = self.part_two_loss(start_positions,end_positions,poss,right_num)
 
-            part_three_loss = torch.max(p.transpose(0,1).mul(right_index),1)[0]
-            verify_loss = (part_three_loss[0]+part_three_loss[1])/2
+            part_three_loss = torch.max(-1 * p.transpose(0,1).mul(right_index),1)[0]
+            verify_loss = torch.div(torch.sum(part_three_loss),part_three_loss.size(0))
 
-            return (start_loss +end_loss)/2 + 0.6 * content_loss + 0.8 * verify_loss 
+            return [(start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss,(start_loss +end_loss)/2,content_loss,verify_loss]
         else:
             ans_start = torch.max(alpha_1,dim=0)
             ans_end = torch.max(alpha_2,dim=0)
@@ -254,7 +263,14 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             final_score = part_one_score + part_two_score + part_three_score
             indexs = torch.max(final_score,dim=1)[1]
             final_position = []
+            first_position = []
+            second_postion = []
+            third_position = []
             for i in range(len(indexs)):
-                final_position.append({'id':indexs[i],'start':ans_start[1][i][indexs[i]],'end':ans_end[1][i][indexs[i]]}) 
-            return final_position
+                final_position.append({'id':int(indexs[i]),'start':ans_start[1][i][indexs[i]],'end':ans_end[1][i][indexs[i]],'score':[float(part_one_score[i][indexs[i]]),float(part_two_score[i][indexs[i]]),float(part_three_score[i][indexs[i]])]}) 
+                first_position.append({'id':0,'start':ans_start[1][i][0],'end':ans_end[1][i][0],'score':[float(part_one_score[i][0]),float(part_two_score[i][0]),float(part_three_score[i][0])]}) 
+                third_position.append({'id':1,'start':ans_start[1][i][1],'end':ans_end[1][i][1],'score':[float(part_one_score[i][1]),float(part_two_score[i][1]),float(part_three_score[i][1])]})
+                second_postion.append({'id':2,'start':ans_start[1][i][2],'end':ans_end[1][i][2],'score':[float(part_one_score[i][2]),float(part_two_score[i][2]),float(part_three_score[i][2])]})
+        return final_position 
+        #  ,first_position,second_postion,third_position
             

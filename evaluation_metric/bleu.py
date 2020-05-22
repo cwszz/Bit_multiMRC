@@ -6,8 +6,8 @@ import json
 from collections import defaultdict
 import sys
 import common
-reload(sys)
-sys.setdefaultencoding("utf-8")
+# reload(sys)
+# sys.setdefaultencoding("utf-8")
 
 
 class BLEU(object):

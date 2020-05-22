@@ -135,7 +135,7 @@ def main(args):
     try:
         pred_result = read_file(args.pred_file)
         ref_result = read_file(args.ref_file, is_ref=True)
-        for qid, results in ref_result.iteritems():
+        for qid, results in ref_result.items():
             cand_result = pred_result.get(qid, {})
             #pred_answers = cand_result.get('answers', [EMPTY])[0]
             pred_answers = cand_result.get('answers', [])
@@ -188,8 +188,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('pred_file', help='predict file')
     parser.add_argument('ref_file', help='reference file')
-    parser.add_argument('task',
-            help='task name, only to keep compatible with leaderboard eval')
+    # parser.add_argument('task',
+    #         help='task name, only to keep compatible with leaderboard eval')
     parser.add_argument('--ab', type=float, default=1.0,
             help='common value of alpha and beta')
     args = parser.parse_args()
