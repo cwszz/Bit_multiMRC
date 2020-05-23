@@ -162,9 +162,9 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         qas_id = example['question_id']
         question_text = example['question']
         # context_tokens = example['doc_tokens']
-        right_num = example['right_doc']
+        right_num = None
         docs = example['documents']
-        right_doc_tokens = example['documents'][right_num]['doc_tokens']
+        qtype = example['question_type']
         # context_tokens = example['doc_tokens']
         start_position = None
         end_position = None
@@ -175,7 +175,8 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
             orig_answer_text = example['answer'][0]
             start_position = int(example['answer_span'][0])
             end_position = int(example['answer_span'][1])
-
+            right_num = example['right_doc']
+            right_doc_tokens = example['documents'][right_num]['doc_tokens']
             # 检测一下给出的fake answer 能否在文中找出来。 找不出来就跳过。
             actual_text = "".join(
                 right_doc_tokens[start_position:(end_position + 1)])
@@ -188,6 +189,7 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
             qas_id=qas_id,
             question_text=question_text,
             documents=docs,
+            question_type =qtype,
             right_num = right_num,
             orig_answer_text=orig_answer_text,
             start_position=start_position,

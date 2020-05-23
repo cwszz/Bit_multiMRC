@@ -273,7 +273,7 @@ def paragraph_selection(sample, mode, MAX_P_LEN, topN):
     doc_id = None
     if 'answer_docs' in sample and len(sample['answer_docs']) > 0:
         # 如果评分不够的话直接去掉
-        if 'match_scores' not in sample or sample['match_scores'][0] < 0.70:
+        if 'match_scores' not in sample or sample['match_scores'][0] < 0.90:
             return
         # 如果有answer_docs
         doc_id = sample['answer_docs'][0]
@@ -424,7 +424,7 @@ def main():
     """
     "do_clean": if do clean, the scripts will remove the example whose fakeanswer not match answer span
     """
-    remain_doc = 3
+    remain_doc = 5
     doc_num = 5
     parser = argparse.ArgumentParser()
 
@@ -474,7 +474,7 @@ def main():
             compute_paragraph_score(sample)
             # 现在每一个文档的每一个段落 都有自己与问题f1值
             # 'segmented_paragraphs_scores' list of list
-
+           
             # 最重要！
             try:
                 # tests = zhq_para_select(sample,args.mode,args.maxp,args.topn)
@@ -522,7 +522,9 @@ def main():
                 if max_recall:
                     max_recall_list.append(max_recall)
                     passage_tokens_len_list.append(len([word for para in sample['passage_tokens'] for word in para]))
-
+            # total_num += 1
+            # if total_num > 3:
+            #     break
             if args.output:
                 try:
                     passages = [0,1]
@@ -564,7 +566,7 @@ def main():
                   
                     f_output.write(json.dumps(preprocessed_sample, ensure_ascii=False) + '\n')
                     total_num  += 1
-                    if total_num > 39999:
+                    if total_num > 4:
                         break   
                 except Exception as e:
                     pass

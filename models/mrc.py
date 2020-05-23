@@ -49,6 +49,44 @@ class Feature_Extraction(BertPreTrainedModel):
         features = self.lstm(input_embedding[0].transpose(0,1),(h_0_q,c_0_q))[0]
         return features,input_embedding[0]
 
+# class Ptr_net2(nn.Module):
+#     def __init__(self):
+#         super(Ptr_net2,self).__init__()
+#         self.temp_hidden = 200
+#         self.qa_outputs = nn.Linear(self.temp_hidden*2,2)
+#         self.lstmlayers = 1
+#         self.score = nn.Linear(self.lstmlayers* 2 * 3 * self.temp_hidden, 1)
+#         self.lstm_m = nn.LSTM(input_size=self.temp_hidden*8, hidden_size=self.temp_hidden ,num_layers=1,
+#             bidirectional=True,batch_first=True)
+
+#     def forward(self,p_features,q_features):
+#         device = p_features.device
+#         h_0_p = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device) # 乘2因为是双向
+#         c_0_p = Variable(torch.zeros(self.lstmlayers*2, p_features.size(1), self.temp_hidden)).to(device)
+#         # self.lstm_boundary.flatten_parameters()
+#         self.lstm_m.flatten_parameters()
+#         u = torch.zeros(p_features.size(1),p_features.size(0),q_features.size(0)).to(device)
+#         for i,(p_features_batch,q_features_batch) in enumerate(zip(p_features.transpose(0,1).transpose(1,2),q_features.transpose(0,1).transpose(1,2))):
+#             cat_feature = torch.cat((p_features_batch.transpose(0,1).unsqueeze(1).repeat(1,q_features.size(0),1),
+#                                     q_features_batch.transpose(0,1).unsqueeze(0).repeat(p_features.size(0),1,1),
+#                                     p_features_batch.unsqueeze(-1).bmm(q_features_batch.unsqueeze(1)).transpose(0,1).transpose(1,2)),-1)
+#             u[i] = self.score(cat_feature.reshape(cat_feature.size(0)*cat_feature.size(1),-1)).squeeze(-1).reshape(p_features.size(0),q_features.size(0))
+#         u = u.transpose(0,1).transpose(1,2)
+#         q2c_attention = F.softmax(u,1).transpose(0,2).transpose(1,2) # dim=1 表示行加和为1
+#                 # U_t = 对j叠加，a_(t,j)*U_j 所以j也就是query_length加和为1
+#         c2q_attention = F.softmax(torch.max(u,1)[0].transpose(0,1),1) # dim = 0 表示从512个第0维中找出代表512个最大的
+#         # c2q_attention = torch.max(u,1)[0].transpose(0,1) # dim = 0 表示从512个第0维中找出代表512个最大的
+#         new_p_features_u = q2c_attention.bmm(q_features.transpose(0,1))
+#             # 获得q2c的加权特征  可能可以简化一下
+#         p_features = p_features.transpose(0,1)
+#         new_p_features_h = c2q_attention.unsqueeze(-1).repeat(1,1,400).mul(p_features)
+#         final_p_features = torch.cat((p_features,new_p_features_h,p_features.mul(new_p_features_u),p_features.mul(new_p_features_h)),-1)  
+#         final_p_features = self.lstm_m(final_p_features,(h_0_p,c_0_p))[0]
+#         s_e = self.qa_outputs(final_p_features).transpose(0,2)
+#         start_p = F.softmax(s_e[0],0).transpose(0,1)
+#         end_p = F.softmax(s_e[1],0).transpose(0,1)
+#         return final_p_features,start_p,end_p
+
 
 class Ptr_net(nn.Module):
     def __init__(self):
@@ -101,10 +139,10 @@ class Ptr_net(nn.Module):
         final_p_features = torch.cat((p_features,new_p_features_h,p_features.mul(new_p_features_u),p_features.mul(new_p_features_h)),-1)  
         final_p_features = self.lstm_m(final_p_features,(h_0_p,c_0_p))[0]
         h_0_a = Variable(torch.zeros(final_p_features.size(0),1,final_p_features.size(2))).to(device) # 这个不知道人家咋初始化的
-        alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
-            ,2)))).squeeze(2),1).unsqueeze(1) #(6)
-        # alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,p_features)
+        # alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,h_0_a.repeat(1,final_p_features.size(1),1))
         #     ,2)))).squeeze(2),1).unsqueeze(1) #(6)
+        alpha_1 = F.softmax(self.w1_a(torch.tanh(self.w2_a(torch.cat((final_p_features,p_features)
+            ,2)))).squeeze(2),1).unsqueeze(1) #(6)
         c_1 = alpha_1.bmm(final_p_features)
         h_0_a = self.lstm_boundary(c_1,(h_0_p_bound,c_0_p_bound))[0]
         """第二次计算END，alpha2就是结束概率"""
@@ -154,8 +192,6 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForBaiduQA_Answer_Selection, self).__init__(config)
         self.temp_hidden = 200
-        # self.bert =AlbertModel(config)
-        # self.bert = BertModel(config)
         self.bert2 = Feature_Extraction(config)
         self.ptr = Ptr_net()
         self.content = Content_detect()
@@ -253,14 +289,14 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             part_three_loss = torch.max(-1 * p.transpose(0,1).mul(right_index),1)[0]
             verify_loss = torch.div(torch.sum(part_three_loss),part_three_loss.size(0))
 
-            return [(start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss,(start_loss +end_loss)/2,content_loss,verify_loss]
+            return [(start_loss +end_loss)/2 + 0.5 * content_loss + 0.5 * verify_loss ,(start_loss +end_loss)/2,content_loss,verify_loss]
         else:
             ans_start = torch.max(alpha_1,dim=0)
             ans_end = torch.max(alpha_2,dim=0)
             part_one_score = torch.exp(ans_start[0].float()).mul(torch.exp(ans_end[0].float()))
             part_two_score = self.second_score(poss,ans_start[1],ans_end[1])
             part_three_score = torch.exp(p).transpose(0,1)
-            final_score = part_one_score + part_two_score + part_three_score
+            final_score = part_one_score + 0.5 * part_two_score + 0.5 * part_three_score
             indexs = torch.max(final_score,dim=1)[1]
             final_position = []
             first_position = []

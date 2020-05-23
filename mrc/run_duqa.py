@@ -9,7 +9,7 @@ import logging
 import os
 import random
 import sys
-
+import json
 import numpy as np
 import torch
 from tensorboardX import SummaryWriter
@@ -19,12 +19,13 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 from transformers import (WEIGHTS_NAME, AdamW, BertConfig, BertTokenizer,get_linear_schedule_with_warmup)
 # from transformers import (WEIGHTS_NAME, AdamW, AlbertConfig, AlbertTokenizer,get_linear_schedule_with_warmup)
-
+from .para_select import compute_paragraph_score
+from .para_select import paragraph_selection
 from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -126,11 +127,13 @@ def train(args, train_dataset, model, tokenizer):
                       'right_num':         batch[8]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('final2.txt','a+',encoding='utf-8') as f:
+            with open('real_last.txt','a+',encoding='utf-8') as f:
                 f.write(str(loss.mean())+'------'+str(epoch_idx)+'\n') 
-            # ff.write(str(outputs[1].mean())+'---1---'+str(epoch_idx)+'\n') 
+            
             # ff.write(str(outputs[2].mean())+'---2---'+str(epoch_idx)+'\n') 
-            with open('final_eachloss3.txt','a+',encoding='utf-8') as ff:
+            with open('real_lastloss.txt','a+',encoding='utf-8') as ff:
+                ff.write(str(outputs[1].mean())+'---1---'+str(epoch_idx)+'\n')
+                ff.write(str(outputs[2].mean())+'---1---'+str(epoch_idx)+'\n')  
                 ff.write(str(outputs[3].mean())+'---3---'+str(epoch_idx)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
@@ -260,9 +263,15 @@ def out_result(output,features,num,ans,predict_examples):
         ans.append(temp_ans)
 
 def predict(args, model, tokenizer, raw_data):
-
-    # predict_examples = read_baidu_examples_pred(raw_data, is_training=False)
+    
     predict_examples = read_baidu_examples('data/preprocessed/my_dev/dev.json',is_training=False)
+    # with open (temp,'r',encoding='utf-8',newline='\n') as g:
+    #     for line in g.readlines():
+    #         sample = json.loads(line,encoding = 'utf-8')
+    #         compute_paragraph_score(sample)
+    #         paragraph_selection(sample, 'test')
+    #         predict_examples.append(sample)
+    # predict_examples = read_baidu_examples_pred(predict_examples, is_training=False)
     cached_features_file = "data/preprocessed/my_test/cached_dev"
     if os.path.exists(cached_features_file):
         logger.info("Loading features from cached file %s", cached_features_file)
@@ -456,7 +465,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=5e-3, type=float,
+    parser.add_argument("--learning_rate", default=8e-6, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -540,10 +549,10 @@ def main():
     # model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
     model = BertForBaiduQA_Answer_Selection(config=config)
     model.load_state_dict(state_dict= torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location=lambda storage, loc: storage))
-    for name, param in model.named_parameters():
-        if('bert2.bert' in name):
-	        param.requires_grad=False
-        print(name,param.requires_grad)
+    # for name, param in model.named_parameters():
+    #     if('bert2.bert' in name):
+	#         param.requires_grad=False
+    #     print(name,param.requires_grad)
     # for name, param in model.named_parameters():
 	#     print(name,param.requires_grad)
     if args.local_rank == 0:
