@@ -1,7 +1,8 @@
 .vscode
 __pycache__
-data/preprocessed
+data
 checkpoints
+chinese_words
 *.log
 runs
 *.txt

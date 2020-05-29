@@ -2,14 +2,14 @@
 
 from functools import reduce
 import math
+import importlib
 import json
 import numpy as np
 from collections import defaultdict
 import sys
-# reload(sys)
-# sys.setdefaultencoding("utf-8")
+importlib.reload(sys)
 
-class RougeL(object):
+class RougeLWithBonus(object):
     def __init__(self, alpha=1.0, beta=1.0, gamma=1.2):
         self.alpha = alpha
         self.beta = beta

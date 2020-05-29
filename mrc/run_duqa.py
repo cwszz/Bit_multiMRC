@@ -12,6 +12,7 @@ import sys
 import json
 import numpy as np
 import torch
+from .utils_duqa import my_tokenizer
 from tensorboardX import SummaryWriter
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
                               TensorDataset)
@@ -25,7 +26,7 @@ from models import BertForBaiduQA_Answer_Selection
 from .utils_duqa import (RawResult, convert_examples_to_features, #.utils_duqa
                          convert_output, read_baidu_examples,
                          read_baidu_examples_pred, write_predictions)
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
@@ -53,7 +54,7 @@ def train(args, train_dataset, model, tokenizer):
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=16,pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,num_workers=16,pin_memory=False)
 
     if args.max_steps > 0:
         t_total = args.max_steps
@@ -115,25 +116,23 @@ def train(args, train_dataset, model, tokenizer):
         #         continue  # temp
         for step, batch in tqdm(enumerate(epoch_iterator), desc='training batches'):
             model.train()
+            # if step == 1041:
+            #     step = 1041
             batch = tuple(t.to(args.device) for t in batch)
-            inputs = {'q_input_ids':       batch[0],
-                      'q_attention_mask':  batch[1], 
-                      'q_token_type_ids':  batch[2],  
-                      'p_input_ids':       batch[3],
-                      'p_attention_mask':  batch[4], 
-                      'p_token_type_ids':  batch[5],  
-                      'start_positions':   batch[6], 
-                      'end_positions':     batch[7],
-                      'right_num':         batch[8]}
+            inputs = {'q_input_ids':       batch[0],  
+                      'p_input_ids':       batch[1],  
+                      'start_positions':   batch[2], 
+                      'end_positions':     batch[3],
+                      'right_num':         batch[4]}
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)  
-            with open('real_last.txt','a+',encoding='utf-8') as f:
+            with open('small_bs.txt','a+',encoding='utf-8') as f:
                 f.write(str(loss.mean())+'------'+str(epoch_idx)+'\n') 
             
             # ff.write(str(outputs[2].mean())+'---2---'+str(epoch_idx)+'\n') 
-            with open('real_lastloss.txt','a+',encoding='utf-8') as ff:
+            with open('smal_bs_each.txt','a+',encoding='utf-8') as ff:
                 ff.write(str(outputs[1].mean())+'---1---'+str(epoch_idx)+'\n')
-                ff.write(str(outputs[2].mean())+'---1---'+str(epoch_idx)+'\n')  
+                ff.write(str(outputs[2].mean())+'---2---'+str(epoch_idx)+'\n')  
                 ff.write(str(outputs[3].mean())+'---3---'+str(epoch_idx)+'\n') 
             # with open('true_train_op_detail.txt','a+',encoding='utf-8') as f:       
             #     f.write(str(float(outputs[1]))+str(float(outputs[2]))+str(float(outputs[3]))+'------'+str(epoch_idx)+'\n') 
@@ -173,8 +172,7 @@ def train(args, train_dataset, model, tokenizer):
                     output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
-                    model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
-                    model_to_save.save_pretrained(output_dir)
+                    torch.save(model.state_dict(), output_dir+str(epoch_idx)+'.pt')
                     torch.save(args, os.path.join(output_dir, 'training_args.bin'))
                     logger.info("Saving model checkpoint to %s", output_dir)
 
@@ -190,8 +188,9 @@ def train(args, train_dataset, model, tokenizer):
             output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(epoch_idx))
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-            model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
-            model_to_save.save_pretrained(output_dir)
+            torch.save(model.state_dict(), output_dir+str(epoch_idx)+'.pt')
+            # model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
+            # model_to_save.save (output_dir)
             torch.save(args, os.path.join(output_dir, 'training_args.bin'))
             logger.info("Saving model checkpoint to %s", output_dir)
 
@@ -264,7 +263,7 @@ def out_result(output,features,num,ans,predict_examples):
 
 def predict(args, model, tokenizer, raw_data):
     
-    predict_examples = read_baidu_examples('data/preprocessed/my_dev/dev.json',is_training=False)
+    predict_examples = read_baidu_examples('data/dev.json',is_training=False)
     # with open (temp,'r',encoding='utf-8',newline='\n') as g:
     #     for line in g.readlines():
     #         sample = json.loads(line,encoding = 'utf-8')
@@ -272,7 +271,7 @@ def predict(args, model, tokenizer, raw_data):
     #         paragraph_selection(sample, 'test')
     #         predict_examples.append(sample)
     # predict_examples = read_baidu_examples_pred(predict_examples, is_training=False)
-    cached_features_file = "data/preprocessed/my_test/cached_dev"
+    cached_features_file = "data/cached_dev"
     if os.path.exists(cached_features_file):
         logger.info("Loading features from cached file %s", cached_features_file)
         features = torch.load(cached_features_file)
@@ -287,19 +286,11 @@ def predict(args, model, tokenizer, raw_data):
         )
         logger.info("Saving features into cached file %s", "data/preprocessed/my_test/cached_dev")
         torch.save(features, cached_features_file)
-    # all_input_ids = torch.tensor([f.input_ids for f in predict_features], dtype=torch.long)
-    # all_input_mask = torch.tensor([f.input_mask for f in predict_features], dtype=torch.long)
-    # all_segment_ids = torch.tensor([f.segment_ids for f in predict_features], dtype=torch.long)
     
     all_q_input_ids = torch.tensor([f.q_input_ids for f in features], dtype=torch.long)
-    all_q_input_mask = torch.tensor([f.q_input_mask for f in features], dtype=torch.long)
-    all_q_segment_ids = torch.tensor([f.q_segment_ids for f in features], dtype=torch.long)
     all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
-    all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
-    all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
     all_example_index = torch.arange(all_q_input_ids.size(0), dtype=torch.long)
-    dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids, 
-                            all_p_input_ids, all_p_input_mask, all_p_segment_ids,all_example_index)   
+    dataset = TensorDataset(all_q_input_ids, all_p_input_ids, all_example_index)   
 
     args.predict_batch_size = args.per_gpu_predict_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
@@ -317,12 +308,8 @@ def predict(args, model, tokenizer, raw_data):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
-            inputs = {'q_input_ids':       batch[0],
-                      'q_attention_mask':  batch[1], 
-                      'q_token_type_ids':  batch[2],  
-                      'p_input_ids':       batch[3],
-                      'p_attention_mask':  batch[4], 
-                      'p_token_type_ids':  batch[5],  
+            inputs = {'q_input_ids':       batch[0], 
+                      'p_input_ids':       batch[1],
                       }
             # example_indices = batch[6]
             outputs = model(**inputs)
@@ -344,19 +331,20 @@ def predict(args, model, tokenizer, raw_data):
                 p_example = predict_examples[f_cnt* args.predict_batch_size+i]
                 temp_ans ={}
                 feature = features[f_cnt* args.predict_batch_size+i]
-                l = len(feature.token_to_orig_map[each_ans['id']])
-                s = min(l,int(each_ans['start'])+1)
-                e = min(l,int(each_ans['end'])+2)
-                real_start = feature.token_to_orig_map[each_ans['id']][s]
-                real_end = feature.token_to_orig_map[each_ans['id']][e]
+                l = len(feature.tokens[each_ans['id']])
+                s = min(l,int(each_ans['start']))
+                e = min(l,int(each_ans['end']))
+                # real_start = feature.token_to_orig_map[each_ans['id']][s]
+                # real_end = feature.token_to_orig_map[each_ans['id']][e]
                 temp_ans['question_type'] = p_example.question_type
                 temp_ans['question'] = p_example.question_text
                 temp_ans['question_id'] = p_example.qas_id
-                temp_ans['answers'] = [''.join(p_example.documents[each_ans['id']]['doc_tokens'][real_start:real_end])]
+                temp_ans['answers'] = [''.join(feature.tokens[each_ans['id']][s:e])]
                 temp_ans['source'] = 'search'
                 temp_ans['score'] =each_ans['score']
-                 
+                temp_ans['yesno_answers'] = []
                 ans.append(temp_ans)
+                # print(ans)
         f_cnt += 1
     # all_predictions, all_nbest_json = convert_output(predict_examples, features, all_results,
     #                                                 args.n_best_size, args.max_answer_length,
@@ -368,12 +356,11 @@ def predict(args, model, tokenizer, raw_data):
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
-
     # Load data features from cache or dataset file
     input_file = args.predict_file if evaluate else args.train_file
     cached_features_file = os.path.join(os.path.dirname(input_file), 'cached_{}_{}_{}'.format(
         'dev' if evaluate else 'train',
-        list(filter(None, args.model_name_or_path.split('/'))).pop(),
+        'v-net',
         str(args.max_seq_length)))
     if os.path.exists(cached_features_file) and not args.overwrite_cache and not output_examples:
         logger.info("Loading features from cached file %s", cached_features_file)
@@ -381,6 +368,7 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
     else:
         logger.info("Creating features from dataset file at %s", input_file)
         examples = read_baidu_examples(input_file=input_file, is_training=not evaluate)
+
         features = convert_examples_to_features(examples=examples,
                                                 tokenizer=tokenizer,
                                                 max_seq_length=args.max_seq_length,
@@ -397,25 +385,24 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
 
     # Convert to Tensors and build dataset
     all_q_input_ids = torch.tensor([f.q_input_ids for f in features], dtype=torch.long)
-    all_q_input_mask = torch.tensor([f.q_input_mask for f in features], dtype=torch.long)
-    all_q_segment_ids = torch.tensor([f.q_segment_ids for f in features], dtype=torch.long)
+    # all_q_input_mask = torch.tensor([f.q_input_mask for f in features], dtype=torch.long)
+    # all_q_segment_ids = torch.tensor([f.q_segment_ids for f in features], dtype=torch.long)
     # for f in features:
     #     if(len(f.p_input_ids)!=5):
     #         print(f)
     all_p_input_ids = torch.tensor([f.p_input_ids for f in features], dtype=torch.long)
-    all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
-    all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
+    # all_p_input_mask = torch.tensor([f.p_input_mask for f in features], dtype=torch.long)
+    # all_p_segment_ids = torch.tensor([f.p_segment_ids for f in features], dtype=torch.long)
     
     if evaluate:
         all_example_index = torch.arange(all_p_input_ids.size(0), dtype=torch.long)
-        dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,all_p_input_ids, 
-                                    all_p_input_mask, all_p_segment_ids, all_example_index)
+        dataset = TensorDataset(all_q_input_ids,all_p_input_ids, all_example_index)
     else:
         all_right_num = torch.tensor([f.right_num for f in features], dtype=torch.int)
         all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
         all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
-        dataset = TensorDataset(all_q_input_ids, all_q_input_mask, all_q_segment_ids,
-                                all_p_input_ids, all_p_input_mask, all_p_segment_ids,
+        dataset = TensorDataset(all_q_input_ids,
+                                all_p_input_ids,
                                 all_start_positions, all_end_positions,all_right_num)
         
     if output_examples:
@@ -430,9 +417,9 @@ def main():
                         help="Duqa json for training. E.g., train-v1.1.json")
     parser.add_argument("--predict_file", default=None, type=str, required=True,
                         help="Duqa json for predictions. E.g., dev-v1.1.json or test-v1.1.json")
-    parser.add_argument("--model_type", default=None, type=str, required=True,
+    parser.add_argument("--model_type", default=None, type=str, required=False,
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))
-    parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
+    parser.add_argument("--model_name_or_path", default=None, type=str, required=False,
                         help="Path to pre-trained model or shortcut name selected in the list: ")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model checkpoints and predictions will be written.")
@@ -465,7 +452,7 @@ def main():
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=8e-6, type=float,
+    parser.add_argument("--learning_rate", default=4e-4, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -542,13 +529,16 @@ def main():
     if args.local_rank not in [-1, 0]:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
-    args.model_type = args.model_type.lower()
-    config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path)
-    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
+    # args.model_type = args.model_type.lower()
+    # config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+    # config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path)
+    # config =None
+    tokenizer = my_tokenizer('chinese_words/cur_words/jieba_words.txt')
+    # tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
     # model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
-    model = BertForBaiduQA_Answer_Selection(config=config)
-    model.load_state_dict(state_dict= torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location=lambda storage, loc: storage))
+    model = BertForBaiduQA_Answer_Selection()
+    # model = torch.load('checkpoints/2th/checkpoint-22.pt')
+    model.load_state_dict(state_dict= torch.load('checkpoints/5th/checkpoint-11.pt',map_location=lambda storage, loc: storage))
     # for name, param in model.named_parameters():
     #     if('bert2.bert' in name):
 	#         param.requires_grad=False
@@ -576,16 +566,15 @@ def main():
         logger.info("Saving model checkpoint to %s", args.output_dir)
         # Save a trained model, configuration and tokenizer using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
-        model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
-        model_to_save.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
+        torch.save(model.state_dict(), arg.output_dir+'final'+'.pt')
+        # tokenizer.save_pretrained(args.output_dir)
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, 'training_args.bin'))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model = model_class.from_pretrained(args.output_dir)
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
+        # model = model_class.from_pretrained(args.output_dir)
+        # tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model.to(args.device)
 
     # Evaluation - we can ask to evaluate all the checkpoints (sub-directories) in a directory

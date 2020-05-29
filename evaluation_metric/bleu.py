@@ -1,12 +1,13 @@
 # coding:utf8
 
 from functools import reduce
+import importlib
 import math
 import json
 from collections import defaultdict
 import sys
 import common
-# reload(sys)
+importlib.reload(sys)
 # sys.setdefaultencoding("utf-8")
 
 
@@ -43,25 +44,16 @@ class BLEU(object):
             )[1]
 
     def score(self):
-        prob_list = []
-        for n_size in range(self.n_size):
-            try:
-                if self.candi_ngram[n_size] == 0:
-                    _score = 0.0
-                else:
-                    _score = self.match_ngram[n_size] / float(self.candi_ngram[n_size])
-            except:
-                _score = 0
-            prob_list.append(_score)
+        prob_list = [
+                self.match_ngram[n_size] / float(self.candi_ngram[n_size])
+                for n_size in range(self.n_size)
+            ]
         bleu_list = [prob_list[0]]
         for n in range(1, self.n_size):
             bleu_list.append(bleu_list[-1] * prob_list[n])
         for n in range(self.n_size):
             bleu_list[n] = bleu_list[n] ** (1./float(n+1))
-        if float(self.bp_c) == 0.0:
-            bp = 0.0
-        else:
-            bp = math.exp(min(1 - self.bp_r / float(self.bp_c), 0))
+        bp = math.exp(min(1 - self.bp_r / float(self.bp_c), 0))
         for n in range(self.n_size):
             bleu_list[n] = bleu_list[n] * bp
         return bleu_list

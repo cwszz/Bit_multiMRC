@@ -6,7 +6,7 @@ cnt = []
 epoch = 30
 check = [0,1,2,3,4,5,6,7]
 cntt = 0
-with open('real_last.txt','r',encoding='utf-8',newline='\n') as t:
+with open('small_bs.txt','r',encoding='utf-8',newline='\n') as t:
     temp_loss = 0
     for i in range(len(check)):
         matrix.append(0)
@@ -16,9 +16,9 @@ with open('real_last.txt','r',encoding='utf-8',newline='\n') as t:
             ttt.append(0)
         frequence.append(ttt)
     for line in tqdm(t.readlines()):
-        # if(cntt >22222):
-        #     break
-        # cntt += 1
+        if(cntt >126638):
+            break
+        cntt += 1
         num = line.split('--')[-1].strip()
         if(int(num) in check):
             matrix[int(num)-check[0]] += float(line.split('(')[1].split(',')[0])

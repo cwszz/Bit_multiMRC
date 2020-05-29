@@ -17,7 +17,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
                               TensorDataset)
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
-
+from mrc import my_tokenizer
 from creeper import creeper_v1, creeper_v2
 from creeper.spider import crawl
 from mrc import mrc_MODEL_CLASSES, mrc_predict, set_seed, to_list
@@ -70,14 +70,17 @@ class Mrc(object):
 
         # model_name_or_path: the path of pre-trained_model or checkpoint
         args.model_type = args.model_type.lower()
-        config_class, model_class, tokenizer_class = mrc_MODEL_CLASSES[args.model_type]
-        self.config = config_class.from_pretrained(args.model_name_or_path)
-        self.tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, do_lower_case=args.do_lower_case)
+        # config_class, model_class, tokenizer_class = mrc_MODEL_CLASSES[args.model_type]
+        # self.config = config_class.from_pretrained(args.model_name_or_path)
+        # self.tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, do_lower_case=args.do_lower_case)
         # self.model = model_class.from_pretrained(args.model_name_or_path,
         #                                          from_tf=bool('.ckpt' in args.model_name_or_path), config=self.config)
-        state_dict  = torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location='cpu')
-        self.model = BertForBaiduQA_Answer_Selection(config= self.config)
-        self.model.load_state_dict(state_dict= state_dict)
+        
+        # state_dict  = torch.load()
+        self.tokenizer = my_tokenizer('chinese_words/cur_words/jieba_words.txt')
+        self.model = BertForBaiduQA_Answer_Selection()
+        # self.model.load_state_dict(state_dict= state_dict)
+        self.model.load_state_dict(state_dict= torch.load('checkpoints/6th/checkpoint-33.pt',map_location=lambda storage, loc: storage))
         
         if args.local_rank == 0:
             torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
@@ -198,6 +201,7 @@ class Demo(object):
     def predict(self, query):
         # examples = self.creeper(query)
         #print("part1 Finish")
+        print(self.server_config)
         examples = []
         examples = self.mrc_processor.predict(examples)
         #print("part2 Finish")
@@ -228,7 +232,7 @@ if __name__ == "__main__":
     # print("____________________________________"+ args.config_path)
     D = Demo("my_config.json")
     answers = D.predict("西红柿做法")
-    with open('data/preprocessed/my_dev/dev_pre.json','w',encoding='utf-8',newline='\n') as w:
+    with open('data/dev_pre.json','w',encoding='utf-8',newline='\n') as w:
         for ans in answers:
             w.write(json.dumps(ans,ensure_ascii=False)+'\n')
 

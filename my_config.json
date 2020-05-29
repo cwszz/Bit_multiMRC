@@ -1,6 +1,6 @@
 {
     "mrc":{
-        "model_name_or_path": "checkpoints/last_bert5/checkpoint-1",
+        "model_name_or_path": "checkpoints/4th/checkpoint-00.pt",
         "model_type": "bert",
         "max_seq_length": 400,
         "doc_stride": 128,

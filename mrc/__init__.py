@@ -9,6 +9,7 @@ from .run_duqa import MODEL_CLASSES as mrc_MODEL_CLASSES
 from .run_duqa import predict as mrc_predict # for server
 from .run_duqa import evaluate as mrc_evaluate
 from .run_duqa import set_seed, to_list
+from .utils_duqa import my_tokenizer
 from .run_duqa import main as mrc_train
 from .para_select import compute_paragraph_score
 from .para_select import paragraph_selection
