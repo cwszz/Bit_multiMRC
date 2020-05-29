@@ -20,7 +20,7 @@ from tqdm import tqdm, trange
 
 from creeper import creeper_v1, creeper_v2
 from creeper.spider import crawl
-from mrc import mrc_MODEL_CLASSES, mrc_predict, set_seed, to_list
+from mrc import mrc_MODEL_CLASSES, mrc_predict, set_seed, to_list,test_predict
 from rerank import rerank_MODEL_CLASSES, rerank_predict
 from models import BertForBaiduQA_Answer_Selection
 
@@ -75,7 +75,7 @@ class Mrc(object):
         self.tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, do_lower_case=args.do_lower_case)
         # self.model = model_class.from_pretrained(args.model_name_or_path,
         #                                          from_tf=bool('.ckpt' in args.model_name_or_path), config=self.config)
-        state_dict  = torch.load(args.model_name_or_path+'/pytorch_model.bin',map_location='cpu')
+        state_dict  = torch.load(args.model_name_or_path+'/pytorch_model.bin')
         self.model = BertForBaiduQA_Answer_Selection(config= self.config)
         self.model.load_state_dict(state_dict= state_dict)
         
@@ -134,8 +134,8 @@ class Mrc(object):
             }
         ]       
         """
-        answers = mrc_predict(self.args, self.model, self.tokenizer, examples)
-
+        # answers = mrc_predict(self.args, self.model, self.tokenizer, examples)
+        answers = test_predict(self.args, self.model, self.tokenizer, examples)
         # all_predictions, all_nbest_json = mrc_predict(self.args, self.model, self.tokenizer, examples)
         # assert len(all_predictions) == len(examples)
         # assert len(all_nbest_json) == len(examples)

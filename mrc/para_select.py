@@ -96,9 +96,9 @@ def paragraph_selection(sample, mode):
         None
     """
     # predefined maximum length of paragraph
-    MAX_P_LEN = 500
+    MAX_P_LEN = 400
     # predefined splitter
-    splitter = u'<splitter>'
+    splitter = u'。'
     # topN of related paragraph to choose
     topN = 3
     doc_id = None

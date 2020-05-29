@@ -246,6 +246,48 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
                     scores[i][j] = torch.div(torch.sum(poss[each_start:each_end+1,i,j],dim=0),each_end+1-each_start)
                 # return poss[each_start]
         return scores
+    def pre(self, q_input_ids,  p_input_ids,q_attention_mask=None, q_token_type_ids=None, q_position_ids=None, q_head_mask=None,
+                p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None):
+        p_input_ids = p_input_ids.transpose(0,1)
+        p_attention_mask = p_attention_mask.transpose(0,1)
+        p_token_type_ids = p_token_type_ids.transpose(0,1)
+        # batch_size = p_input_ids.size(1)
+        q_features,q_embedding = self.bert2(q_input_ids,attention_mask = q_attention_mask,token_type_ids=q_token_type_ids,position_ids=q_position_ids, head_mask=q_head_mask)
+        posses = []
+        representations =[]
+        alpha1 = []
+        alpha2 = []
+        for p_input_id,each_p_attention_mask,p_token_type_id in zip(p_input_ids,p_attention_mask,p_token_type_ids):
+            p_feature,p_embedding = self.bert2(p_input_id,attention_mask = each_p_attention_mask,token_type_ids=p_token_type_id,position_ids=None,head_mask=None)
+            final_p_feature,p_alpha1,p_alpha2 = self.ptr(p_feature,q_features)
+            p_poss,p_representation = self.content(final_p_feature,p_embedding)
+            posses.append(p_poss)
+            representations.append(p_representation.unsqueeze(-1))
+            alpha1.append(p_alpha1.unsqueeze(-1).transpose(0,1))
+            alpha2.append(p_alpha2.unsqueeze(-1).transpose(0,1))
+        alpha_1 = torch.cat(alpha1,-1)
+        alpha_2 = torch.cat(alpha2,-1)
+        poss = torch.cat(posses,-1).transpose(0,1)
+        representation = torch.cat(representations,-1).transpose(1,2).transpose(0,1)
+        p = self.verify(representation)
+        # 得分预测
+        ans_start = torch.max(alpha_1,dim=0)
+        ans_end = torch.max(alpha_2,dim=0)
+        part_one_score = torch.exp(ans_start[0].float()).mul(torch.exp(ans_end[0].float()))
+        part_two_score = self.second_score(poss,ans_start[1],ans_end[1])
+        part_three_score = torch.exp(p).transpose(0,1)
+        final_score = part_one_score  *part_two_score * part_three_score
+        indexs = torch.max(final_score,dim=1)[1]
+        final_position = []
+        first_position = []
+        second_postion = []
+        third_position = []
+        for i in range(len(indexs)):
+            final_position.append({'id':int(indexs[i]),'start':ans_start[1][i][indexs[i]],'end':ans_end[1][i][indexs[i]],'score':[float(part_one_score[i][indexs[i]]),float(part_two_score[i][indexs[i]]),float(part_three_score[i][indexs[i]])]}) 
+            # first_position.append({'id':0,'start':ans_start[1][i][0],'end':ans_end[1][i][0],'score':[float(part_one_score[i][0]),float(part_two_score[i][0]),float(part_three_score[i][0])]}) 
+            # third_position.append({'id':1,'start':ans_start[1][i][1],'end':ans_end[1][i][1],'score':[float(part_one_score[i][1]),float(part_two_score[i][1]),float(part_three_score[i][1])]})
+            # second_postion.append({'id':2,'start':ans_start[1][i][2],'end':ans_end[1][i][2],'score':[float(part_one_score[i][2]),float(part_two_score[i][2]),float(part_three_score[i][2])]})
+        return final_position 
 
     def forward(self, q_input_ids,  p_input_ids,q_attention_mask=None, q_token_type_ids=None, q_position_ids=None, q_head_mask=None,
                 p_attention_mask=None, p_token_type_ids=None, p_position_ids=None, p_head_mask=None,right_num = None,
@@ -296,7 +338,7 @@ class BertForBaiduQA_Answer_Selection(BertPreTrainedModel):
             part_one_score = torch.exp(ans_start[0].float()).mul(torch.exp(ans_end[0].float()))
             part_two_score = self.second_score(poss,ans_start[1],ans_end[1])
             part_three_score = torch.exp(p).transpose(0,1)
-            final_score = part_one_score + 0.5 * part_two_score + 0.5 * part_three_score
+            final_score = part_one_score  *part_two_score * part_three_score
             indexs = torch.max(final_score,dim=1)[1]
             final_position = []
             first_position = []

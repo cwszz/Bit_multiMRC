@@ -467,7 +467,9 @@ def main():
         max_recall_list = []
         passage_tokens_len_list = []
         for line in tqdm(f, desc="processing..."):
-            
+            total_num += 1
+            if total_num>10:
+                break
             if args.output:
                 preprocessed_sample = {}
             sample = json.loads(line)
@@ -565,9 +567,9 @@ def main():
                         preprocessed_sample['answer_span'] = sample['answer_spans'][0]
                   
                     f_output.write(json.dumps(preprocessed_sample, ensure_ascii=False) + '\n')
-                    total_num  += 1
-                    if total_num > 4:
-                        break   
+                    # total_num  += 1
+                    # if total_num > 10:
+                    #     break   
                 except Exception as e:
                     pass
 

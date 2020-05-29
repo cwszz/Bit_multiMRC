@@ -1,11 +1,12 @@
 {
     "mrc":{
-        "model_name_or_path": "checkpoints/last_bert5/checkpoint-1",
+        
+        "model_name_or_path": "checkpoints/without_bert2/checkpoint-4000",
         "model_type": "bert",
         "max_seq_length": 400,
         "doc_stride": 128,
         "max_query_length": 64,
-        "per_gpu_predict_batch_size": 32,
+        "per_gpu_predict_batch_size": 8,
         "n_best_size": 20,
         "max_answer_length": 512,
         "no_cuda": false,

@@ -112,6 +112,13 @@ def read_baidu_examples(input_file, is_training):
             # if(cnt >50):
             #     break
             docs = example['documents']
+            # for each_doc in example['documents']:
+            #     temp = {}
+            #     temp['paragraphs'] = each_doc['paragraphs']
+            #     temp['doc_tokens'] = each_doc['segmented_paragraphs']
+            #     temp['title'] = each_doc['title']
+            #     docs.append(temp)
+
             qtype = example['question_type']
             # context_tokens = example['doc_tokens']
             right_num = None
@@ -163,7 +170,13 @@ def read_baidu_examples_pred(raw_data, is_training):# 有个问题，dureader是
         question_text = example['question']
         # context_tokens = example['doc_tokens']
         right_num = None
-        docs = example['documents']
+        docs = []
+        for each_doc in example['documents']:
+            temp = {}
+            temp['paragraphs'] = each_doc['paragraphs'][0]
+            temp['doc_tokens'] = each_doc['segmented_paragraphs'][0]
+            temp['title'] = each_doc['title']
+            docs.append(temp)
         qtype = example['question_type']
         # context_tokens = example['doc_tokens']
         start_position = None
